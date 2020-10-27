@@ -1,7 +1,7 @@
 package main
 
 import (
-	web "./web"
+	"github.com/bic4907/webrtc/web"
 	"os"
 	"os/signal"
 )

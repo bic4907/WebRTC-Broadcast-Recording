@@ -14,7 +14,7 @@ import (
 	"github.com/pion/webrtc/v2"
 	"github.com/pion/webrtc/v2/pkg/media/samplebuilder"
 
-	webrtcsignal "github.com/pion/example-webrtc-applications/internal/signal"
+	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 )
 
 func CreatePeerConnection(token string) []byte {

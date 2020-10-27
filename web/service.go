@@ -1,8 +1,8 @@
 package web
 
 import (
-	wrtc "../wrtc"
 	"fmt"
+	"github.com/bic4907/webrtc/wrtc"
 	"io/ioutil"
 	"net/http"
 	"os"
