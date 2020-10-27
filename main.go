@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/pion/example-webrtc-applications/web"
+	web "./web"
 	"os"
 	"os/signal"
 )
