@@ -1,0 +1,16 @@
+version: '3.4'
+
+services:
+  webrtc:
+    build: .
+    volumes:
+      - .:/code
+    # network_mode: "host" # Only use on linux!
+    ports:
+      - "10001:10001"
+    working_dir: /code
+    command:
+      - /bin/bash
+      - -c
+      - npm install
+      - node index.js
