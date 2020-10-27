@@ -1,8 +1,8 @@
 package web
 
 import (
+	wrtc "../wrtc"
 	"fmt"
-	"github.com/pion/example-webrtc-applications/wrtc"
 	"io/ioutil"
 	"net/http"
 	"os"
