@@ -2,11 +2,10 @@ package wrtc
 
 import (
 	"fmt"
+	"github.com/at-wat/ebml-go/webm"
 	"io"
 	"os"
 	"time"
-
-	"github.com/at-wat/ebml-go/webm"
 
 	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 	"github.com/pion/rtcp"
