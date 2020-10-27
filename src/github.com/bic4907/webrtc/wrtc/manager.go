@@ -1,0 +1,239 @@
+package wrtc
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/at-wat/ebml-go/webm"
+
+	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
+	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
+	"github.com/pion/rtp/codecs"
+	"github.com/pion/webrtc/v2"
+	"github.com/pion/webrtc/v2/pkg/media/samplebuilder"
+)
+
+func CreatePeerConnection(token string) []byte {
+	saver := newWebmSaver()
+	_, answer := createWebRTCConn(saver, token)
+
+	return []byte(answer)
+}
+
+func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, string) {
+	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
+
+	// Prepare the configuration
+	config := webrtc.Configuration{
+		ICEServers: []webrtc.ICEServer{
+			{
+				URLs: []string{"stun:stun.l.google.com:19302"},
+			},
+		},
+	}
+
+	// Create a MediaEngine object to configure the supported codec
+	m := webrtc.MediaEngine{}
+
+	// Setup the codecs you want to use.
+	// Only support VP8 and OPUS, this makes our WebM muxer code simpler
+	m.RegisterCodec(webrtc.NewRTPVP8Codec(webrtc.DefaultPayloadTypeVP8, 90000))
+	m.RegisterCodec(webrtc.NewRTPOpusCodec(webrtc.DefaultPayloadTypeOpus, 48000))
+
+	// Create the API object with the MediaEngine
+	api := webrtc.NewAPI(webrtc.WithMediaEngine(m))
+
+	// Create a new RTCPeerConnection
+	peerConnection, err := api.NewPeerConnection(config)
+	if err != nil {
+		panic(err)
+	}
+
+	if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeAudio); err != nil {
+		panic(err)
+	} else if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeVideo); err != nil {
+		panic(err)
+	}
+
+	// Set a handler for when a new remote track starts, this handler copies inbound RTP packets,
+	// replaces the SSRC and sends them back
+	peerConnection.OnTrack(func(track *webrtc.Track, receiver *webrtc.RTPReceiver) {
+		// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
+		// This is a temporary fix until we implement incoming RTCP events, then we would push a PLI only when a viewer requests it
+		go func() {
+			ticker := time.NewTicker(time.Second * 3)
+			for range ticker.C {
+				errSend := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: track.SSRC()}})
+				if errSend != nil {
+					fmt.Println(errSend)
+				}
+			}
+		}()
+
+		fmt.Printf("Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
+		for {
+			// Read RTP packets being sent to Pion
+			rtp, readErr := track.ReadRTP()
+			if readErr != nil {
+				if readErr == io.EOF {
+					return
+				}
+				panic(readErr)
+			}
+			switch track.Kind() {
+			case webrtc.RTPCodecTypeAudio:
+				saver.PushOpus(rtp)
+			case webrtc.RTPCodecTypeVideo:
+				saver.PushVP8(rtp)
+			}
+		}
+	})
+	// Set the handler for ICE connection state
+	// This will notify you when the peer has connected/disconnected
+	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
+		fmt.Printf("Connection State has changed %s \n", connectionState.String())
+	})
+
+	// Wait for the offer to be pasted
+	offer := webrtc.SessionDescription{}
+	webrtcsignal.Decode(token, &offer)
+
+	// Set the remote SessionDescription
+	err = peerConnection.SetRemoteDescription(offer)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create an answer
+	answer, err := peerConnection.CreateAnswer(nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// Sets the LocalDescription, and starts our UDP listeners
+	err = peerConnection.SetLocalDescription(answer)
+	if err != nil {
+		panic(err)
+	}
+
+	// Output the answer in base64 so we can paste it in browser
+	//fmt.Println(webrtcsignal.Encode(answer))
+
+	return peerConnection, webrtcsignal.Encode(answer)
+}
+
+type webmSaver struct {
+	audioWriter, videoWriter       webm.BlockWriteCloser
+	audioBuilder, videoBuilder     *samplebuilder.SampleBuilder
+	audioTimestamp, videoTimestamp uint32
+}
+
+func newWebmSaver() *webmSaver {
+	return &webmSaver{
+		audioBuilder: samplebuilder.New(10, &codecs.OpusPacket{}),
+		videoBuilder: samplebuilder.New(10, &codecs.VP8Packet{}),
+	}
+}
+
+func (s *webmSaver) Close() {
+	fmt.Printf("Finalizing webm...\n")
+	if s.audioWriter != nil {
+		if err := s.audioWriter.Close(); err != nil {
+			panic(err)
+		}
+	}
+	if s.videoWriter != nil {
+		if err := s.videoWriter.Close(); err != nil {
+			panic(err)
+		}
+	}
+}
+func (s *webmSaver) PushOpus(rtpPacket *rtp.Packet) {
+	s.audioBuilder.Push(rtpPacket)
+
+	for {
+		sample := s.audioBuilder.Pop()
+		if sample == nil {
+			return
+		}
+		if s.audioWriter != nil {
+			s.audioTimestamp += sample.Samples
+			t := s.audioTimestamp / 48
+			if _, err := s.audioWriter.Write(true, int64(t), sample.Data); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+func (s *webmSaver) PushVP8(rtpPacket *rtp.Packet) {
+	s.videoBuilder.Push(rtpPacket)
+
+	for {
+		sample := s.videoBuilder.Pop()
+		if sample == nil {
+			return
+		}
+		// Read VP8 header.
+		videoKeyframe := (sample.Data[0]&0x1 == 0)
+		if videoKeyframe {
+			// Keyframe has frame information.
+			raw := uint(sample.Data[6]) | uint(sample.Data[7])<<8 | uint(sample.Data[8])<<16 | uint(sample.Data[9])<<24
+			width := int(raw & 0x3FFF)
+			height := int((raw >> 16) & 0x3FFF)
+
+			if s.videoWriter == nil || s.audioWriter == nil {
+				// Initialize WebM saver using received frame size.
+				s.InitWriter(width, height)
+			}
+		}
+		if s.videoWriter != nil {
+			s.videoTimestamp += sample.Samples
+			t := s.videoTimestamp / 90
+			if _, err := s.videoWriter.Write(videoKeyframe, int64(t), sample.Data); err != nil {
+				panic(err)
+			}
+		}
+	}
+}
+func (s *webmSaver) InitWriter(width, height int) {
+	w, err := os.OpenFile("test.webm", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	ws, err := webm.NewSimpleBlockWriter(w,
+		[]webm.TrackEntry{
+			{
+				Name:            "Audio",
+				TrackNumber:     1,
+				TrackUID:        12345,
+				CodecID:         "A_OPUS",
+				TrackType:       2,
+				DefaultDuration: 20000000,
+				Audio: &webm.Audio{
+					SamplingFrequency: 48000.0,
+					Channels:          2,
+				},
+			}, {
+				Name:            "Video",
+				TrackNumber:     2,
+				TrackUID:        67890,
+				CodecID:         "V_VP8",
+				TrackType:       1,
+				DefaultDuration: 33333333,
+				Video: &webm.Video{
+					PixelWidth:  uint64(width),
+					PixelHeight: uint64(height),
+				},
+			},
+		})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("WebM saver has started with video width=%d, height=%d\n", width, height)
+	s.audioWriter = ws[0]
+	s.videoWriter = ws[1]
+}
