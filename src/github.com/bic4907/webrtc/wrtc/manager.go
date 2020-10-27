@@ -2,17 +2,18 @@ package wrtc
 
 import (
 	"fmt"
-	"github.com/at-wat/ebml-go/webm"
 	"io"
 	"os"
 	"time"
+
+	"github.com/at-wat/ebml-go/webm"
 
 	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
-	"github.com/pion/webrtc/v2"
-	"github.com/pion/webrtc/v2/pkg/media/samplebuilder"
+	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
 func CreatePeerConnection(token string) []byte {
@@ -60,8 +61,7 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 	// Set a handler for when a new remote track starts, this handler copies inbound RTP packets,
 	// replaces the SSRC and sends them back
 	peerConnection.OnTrack(func(track *webrtc.Track, receiver *webrtc.RTPReceiver) {
-		// Send a PLI on an interval so that the publisher is pushing a keyframe every rtcpPLIInterval
-		// This is a temporary fix until we implement incoming RTCP events, then we would push a PLI only when a viewer requests it
+
 		go func() {
 			ticker := time.NewTicker(time.Second * 3)
 			for range ticker.C {
@@ -90,10 +90,25 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 			}
 		}
 	})
-	// Set the handler for ICE connection state
-	// This will notify you when the peer has connected/disconnected
+
+	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
+		fmt.Printf("New DataChannel %s %d\n", d.Label(), d.ID())
+
+		d.OnOpen(func() {
+			fmt.Printf("Data channel '%s'-'%d' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", d.Label(), d.ID())
+
+		})
+
+		d.OnMessage(func(msg webrtc.DataChannelMessage) {
+			d.SendText("pong")
+			fmt.Printf("Message from DataChannel '%s': '%s'\n", d.Label(), string(msg.Data))
+		})
+
+		// Register text message handling
+	})
+
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed %s \n", connectionState.String())
+		fmt.Printf("Connection State has changed %s\n", connectionState.String())
 	})
 
 	// Wait for the offer to be pasted
@@ -112,12 +127,16 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 		panic(err)
 	}
 
+	// Create channel that is blocked until ICE Gathering is complete
+	gatherComplete := webrtc.GatheringCompletePromise(peerConnection)
+
 	// Sets the LocalDescription, and starts our UDP listeners
 	err = peerConnection.SetLocalDescription(answer)
 	if err != nil {
 		panic(err)
 	}
 
+	<-gatherComplete
 	// Output the answer in base64 so we can paste it in browser
 	//fmt.Println(webrtcsignal.Encode(answer))
 

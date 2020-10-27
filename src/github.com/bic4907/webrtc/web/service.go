@@ -26,8 +26,6 @@ func StartWebService() {
 		err = http.ListenAndServe(address, nil)
 	}
 
-	fmt.Println(address)
-
 	closed := make(chan os.Signal, 1)
 	signal.Notify(closed, os.Interrupt)
 	<-closed
