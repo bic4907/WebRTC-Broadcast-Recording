@@ -2,28 +2,32 @@ package wrtc
 
 import (
 	"fmt"
+	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/google/uuid"
 	"io"
-	"os"
-	"time"
 
-	"github.com/at-wat/ebml-go/webm"
+	"time"
 
 	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 	"github.com/pion/rtcp"
-	"github.com/pion/rtp"
-	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media/samplebuilder"
 )
 
+type Client struct {
+	pc       *webrtc.PeerConnection
+	id       uuid.UUID
+	last_hit *timestamp.Timestamp
+	recorder *VideoRecorder
+}
+
 func CreatePeerConnection(token string) []byte {
-	saver := newWebmSaver()
-	_, answer := createWebRTCConn(saver, token)
+	recorder := newVideoRecorder()
+	_, answer := createWebRTCConn(recorder, token)
 
 	return []byte(answer)
 }
 
-func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, string) {
+func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
 	// Prepare the configuration
@@ -52,6 +56,17 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 		panic(err)
 	}
 
+	uuid4, _ := uuid.NewRandom()
+
+	client := Client{
+		pc:       peerConnection,
+		id:       uuid4,
+		last_hit: nil,
+		recorder: recorder,
+	}
+	recorder.client = client
+	client.recorder = recorder
+
 	if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeAudio); err != nil {
 		panic(err)
 	} else if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeVideo); err != nil {
@@ -72,7 +87,8 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 			}
 		}()
 
-		fmt.Printf("Track has started, of type %d: %s \n", track.PayloadType(), track.Codec().Name)
+		log(client.id, fmt.Sprintf("Track has started, of type %d: %s", track.PayloadType(), track.Codec().Name))
+
 		for {
 			// Read RTP packets being sent to Pion
 			rtp, readErr := track.ReadRTP()
@@ -84,31 +100,31 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 			}
 			switch track.Kind() {
 			case webrtc.RTPCodecTypeAudio:
-				saver.PushOpus(rtp)
+				recorder.PushOpus(rtp)
 			case webrtc.RTPCodecTypeVideo:
-				saver.PushVP8(rtp)
+				recorder.PushVP8(rtp)
 			}
 		}
 	})
 
 	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
-		fmt.Printf("New DataChannel %s %d\n", d.Label(), d.ID())
 
 		d.OnOpen(func() {
-			fmt.Printf("Data channel '%s'-'%d' open. Random messages will now be sent to any connected DataChannels every 5 seconds\n", d.Label(), d.ID())
-
 		})
 
 		d.OnMessage(func(msg webrtc.DataChannelMessage) {
 			d.SendText("pong")
-			fmt.Printf("Message from DataChannel '%s': '%s'\n", d.Label(), string(msg.Data))
 		})
 
-		// Register text message handling
 	})
 
 	peerConnection.OnICEConnectionStateChange(func(connectionState webrtc.ICEConnectionState) {
-		fmt.Printf("Connection State has changed %s\n", connectionState.String())
+		log(client.id, fmt.Sprintf("Connection State has changed %s", connectionState.String()))
+
+		if connectionState.String() == "disconnected" {
+			client.recorder.Close()
+		}
+
 	})
 
 	// Wait for the offer to be pasted
@@ -140,118 +156,5 @@ func createWebRTCConn(saver *webmSaver, token string) (*webrtc.PeerConnection, s
 	// Output the answer in base64 so we can paste it in browser
 	//fmt.Println(webrtcsignal.Encode(answer))
 
-	return peerConnection, webrtcsignal.Encode(answer)
-}
-
-type webmSaver struct {
-	audioWriter, videoWriter       webm.BlockWriteCloser
-	audioBuilder, videoBuilder     *samplebuilder.SampleBuilder
-	audioTimestamp, videoTimestamp uint32
-}
-
-func newWebmSaver() *webmSaver {
-	return &webmSaver{
-		audioBuilder: samplebuilder.New(10, &codecs.OpusPacket{}),
-		videoBuilder: samplebuilder.New(10, &codecs.VP8Packet{}),
-	}
-}
-
-func (s *webmSaver) Close() {
-	fmt.Printf("Finalizing webm...\n")
-	if s.audioWriter != nil {
-		if err := s.audioWriter.Close(); err != nil {
-			panic(err)
-		}
-	}
-	if s.videoWriter != nil {
-		if err := s.videoWriter.Close(); err != nil {
-			panic(err)
-		}
-	}
-}
-func (s *webmSaver) PushOpus(rtpPacket *rtp.Packet) {
-	s.audioBuilder.Push(rtpPacket)
-
-	for {
-		sample := s.audioBuilder.Pop()
-		if sample == nil {
-			return
-		}
-		if s.audioWriter != nil {
-			s.audioTimestamp += sample.Samples
-			t := s.audioTimestamp / 48
-			if _, err := s.audioWriter.Write(true, int64(t), sample.Data); err != nil {
-				panic(err)
-			}
-		}
-	}
-}
-func (s *webmSaver) PushVP8(rtpPacket *rtp.Packet) {
-	s.videoBuilder.Push(rtpPacket)
-
-	for {
-		sample := s.videoBuilder.Pop()
-		if sample == nil {
-			return
-		}
-		// Read VP8 header.
-		videoKeyframe := (sample.Data[0]&0x1 == 0)
-		if videoKeyframe {
-			// Keyframe has frame information.
-			raw := uint(sample.Data[6]) | uint(sample.Data[7])<<8 | uint(sample.Data[8])<<16 | uint(sample.Data[9])<<24
-			width := int(raw & 0x3FFF)
-			height := int((raw >> 16) & 0x3FFF)
-
-			if s.videoWriter == nil || s.audioWriter == nil {
-				// Initialize WebM saver using received frame size.
-				s.InitWriter(width, height)
-			}
-		}
-		if s.videoWriter != nil {
-			s.videoTimestamp += sample.Samples
-			t := s.videoTimestamp / 90
-			if _, err := s.videoWriter.Write(videoKeyframe, int64(t), sample.Data); err != nil {
-				panic(err)
-			}
-		}
-	}
-}
-func (s *webmSaver) InitWriter(width, height int) {
-	w, err := os.OpenFile("test.webm", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		panic(err)
-	}
-
-	ws, err := webm.NewSimpleBlockWriter(w,
-		[]webm.TrackEntry{
-			{
-				Name:            "Audio",
-				TrackNumber:     1,
-				TrackUID:        12345,
-				CodecID:         "A_OPUS",
-				TrackType:       2,
-				DefaultDuration: 20000000,
-				Audio: &webm.Audio{
-					SamplingFrequency: 48000.0,
-					Channels:          2,
-				},
-			}, {
-				Name:            "Video",
-				TrackNumber:     2,
-				TrackUID:        67890,
-				CodecID:         "V_VP8",
-				TrackType:       1,
-				DefaultDuration: 33333333,
-				Video: &webm.Video{
-					PixelWidth:  uint64(width),
-					PixelHeight: uint64(height),
-				},
-			},
-		})
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("WebM saver has started with video width=%d, height=%d\n", width, height)
-	s.audioWriter = ws[0]
-	s.videoWriter = ws[1]
+	return client, webrtcsignal.Encode(answer)
 }
