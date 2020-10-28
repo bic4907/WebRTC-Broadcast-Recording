@@ -32,6 +32,10 @@ func newVideoRecorder() *VideoRecorder {
 }
 
 func (s *VideoRecorder) Close() {
+	if s.client.recorder.name == "" {
+		return
+	}
+
 	log(s.client.id, fmt.Sprintf("Recording finished - %s", s.client.recorder.name))
 	if s.audioWriter != nil {
 		if err := s.audioWriter.Close(); err != nil {

@@ -82,7 +82,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 			for range ticker.C {
 				errSend := peerConnection.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: track.SSRC()}})
 				if errSend != nil {
-					fmt.Println(errSend)
+					break
 				}
 			}
 		}()
@@ -90,8 +90,10 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 		log(client.id, fmt.Sprintf("Track has started, of type %d: %s", track.PayloadType(), track.Codec().Name))
 
 		for {
-			// Read RTP packets being sent to Pion
 			rtp, readErr := track.ReadRTP()
+
+			//log(client.id, "HI")
+
 			if readErr != nil {
 				if readErr == io.EOF {
 					return
