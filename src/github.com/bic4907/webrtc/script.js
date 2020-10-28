@@ -1,8 +1,9 @@
 // get DOM elements
-var dataChannelLog = document.getElementById('data-channel'),
-    iceConnectionLog = document.getElementById('ice-connection-state'),
-    iceGatheringLog = document.getElementById('ice-gathering-state'),
-    signalingLog = document.getElementById('signaling-state');
+dataChannelLog = document.getElementById('data-channel'),
+iceConnectionLog = document.getElementById('ice-connection-state')
+iceGatheringLog = document.getElementById('ice-gathering-state')
+signalingLog = document.getElementById('signaling-state')
+latencyLog = document.getElementById('latency')
 
 document.getElementById('video').muted = true
 
@@ -12,14 +13,10 @@ document.getElementById('video').muted = true
 
 
 // peer connection
-var pc = null;
-
+let pc = null;
 // data channel
-var dc = null, dcInterval = null;
-
-var log = msg => {
-    document.getElementById('rtc-logs').innerHTML += msg + '<br>'
-}
+let dc = null, dcInterval = null;
+let pingTable = {}
 
 function createPeerConnection() {
 
@@ -36,13 +33,14 @@ function createPeerConnection() {
 
     pc.addEventListener('iceconnectionstatechange', function() {
         iceConnectionLog.textContent += ' -> ' + pc.iceConnectionState;
+
     }, false);
     iceConnectionLog.textContent = pc.iceConnectionState;
 
     pc.addEventListener('signalingstatechange', function() {
         signalingLog.textContent += ' -> ' + pc.signalingState;
     }, false);
-
+    signalingLog.textContent = pc.signalingState
 
     navigator.mediaDevices.getUserMedia({video: true, audio: true})
         .then(stream => {
@@ -50,11 +48,12 @@ function createPeerConnection() {
             pc.createOffer().then(d => pc.setLocalDescription(d))
         })
 
-    pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+    pc.oniceconnectionstatechange = event => {
+        console.log(pc.iceConnectionState)
+    }
+
     pc.onicecandidate = event => {
         if (event.candidate === null) {
-            console.log(btoa(JSON.stringify(pc.localDescription)))
-
             $.ajax({
                 url: '/connect',
                 method: 'POST',
@@ -67,72 +66,39 @@ function createPeerConnection() {
             })
 
         }
-
-
-
-
-        return pc;
     }
+
+    dc = pc.createDataChannel('health-check')
+
+    dc.addEventListener('open', event => {
+        let count = 1000
+        dcInterval = setInterval(function() {
+            dc.send('ping-' + count)
+            pingTable['ping-' + count] = (new Date).getMilliseconds()
+            count += 1000
+        }, 500)
+
+    })
+    dc.addEventListener('message', event => {
+        console.log(event.data)
+        if(event.data == 'video-ok') {
+            setStatus('connected')
+        }
+        if(event.data.toString().startsWith('pong')) {
+            arr = event.data.toString().split('-')
+
+            prev = pingTable['ping-' + arr[1]]
+            gap = (new Date).getMilliseconds() - prev
+            console.log(gap)
+            setLatency(gap)
+        }
+
+    })
+
+
     return pc;
 }
 
-
-
-
-function negotiate() {
-    return pc.createOffer().then(function(offer) {
-        return pc.setLocalDescription(offer);
-    }).then(function() {
-        // wait for ICE gathering to complete
-        return new Promise(function(resolve) {
-            if (pc.iceGatheringState === 'complete') {
-                resolve();
-            } else {
-                function checkState() {
-                    if (pc.iceGatheringState === 'complete') {
-                        pc.removeEventListener('icegatheringstatechange', checkState);
-                        resolve();
-                    }
-                }
-                pc.addEventListener('icegatheringstatechange', checkState);
-            }
-        });
-    }).then(function() {
-        var offer = pc.localDescription;
-        var codec;
-
-        codec = document.getElementById('audio-codec').value;
-        if (codec !== 'default') {
-            offer.sdp = sdpFilterCodec('audio', codec, offer.sdp);
-        }
-
-        //codec = document.getElementById('video-codec').value;
-        //if (codec !== 'default') {
-        //    offer.sdp = sdpFilterCodec('video', codec, offer.sdp);
-        //}
-
-        document.getElementById('offer-sdp').textContent = offer.sdp;
-        return fetch('/connect', {
-            body: JSON.stringify({
-                sdp: offer.sdp,
-                type: offer.type,
-                user_id: 1,
-                room_id: 2,
-            }),
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            method: 'POST'
-        });
-    }).then(function(response) {
-        return response.json();
-    }).then(function(answer) {
-        document.getElementById('answer-sdp').textContent = answer.sdp;
-        return pc.setRemoteDescription(answer);
-    }).catch(function(e) {
-        console.error(e);
-    });
-}
 
 var constraints = {
     audio: true,
@@ -145,10 +111,6 @@ function start() {
     document.getElementById('start').style.display = 'none';
 
     pc = createPeerConnection();
-
-
-
-
 
 
     document.getElementById('stop').style.display = 'inline-block';
@@ -179,71 +141,15 @@ function stop() {
         sender.track.stop();
     });
 
+
+    if(dcInterval != null) {
+        clearInterval(dcInterval)
+    }
+
     // close peer connection
     setTimeout(function() {
         pc.close();
     }, 500);
-}
-
-function sdpFilterCodec(kind, codec, realSdp) {
-    var allowed = []
-    var rtxRegex = new RegExp('a=fmtp:(\\d+) apt=(\\d+)\r$');
-    var codecRegex = new RegExp('a=rtpmap:([0-9]+) ' + escapeRegExp(codec))
-    var videoRegex = new RegExp('(m=' + kind + ' .*?)( ([0-9]+))*\\s*$')
-
-    var lines = realSdp.split('\n');
-
-    var isKind = false;
-    for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('m=' + kind + ' ')) {
-            isKind = true;
-        } else if (lines[i].startsWith('m=')) {
-            isKind = false;
-        }
-
-        if (isKind) {
-            var match = lines[i].match(codecRegex);
-            if (match) {
-                allowed.push(parseInt(match[1]));
-            }
-
-            match = lines[i].match(rtxRegex);
-            if (match && allowed.includes(parseInt(match[2]))) {
-                allowed.push(parseInt(match[1]));
-            }
-        }
-    }
-
-    var skipRegex = 'a=(fmtp|rtcp-fb|rtpmap):([0-9]+)';
-    var sdp = '';
-
-    isKind = false;
-    for (var i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('m=' + kind + ' ')) {
-            isKind = true;
-        } else if (lines[i].startsWith('m=')) {
-            isKind = false;
-        }
-
-        if (isKind) {
-            var skipMatch = lines[i].match(skipRegex);
-            if (skipMatch && !allowed.includes(parseInt(skipMatch[2]))) {
-                continue;
-            } else if (lines[i].match(videoRegex)) {
-                sdp += lines[i].replace(videoRegex, '$1 ' + allowed.join(' ')) + '\n';
-            } else {
-                sdp += lines[i] + '\n';
-            }
-        } else {
-            sdp += lines[i] + '\n';
-        }
-    }
-
-    return sdp;
-}
-
-function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
 }
 
 
@@ -262,3 +168,7 @@ function setStatus(value) {
     $('.status .' + value).show()
 }
 setStatus('disconnected')
+
+function setLatency(value) {
+    latencyLog.innerText = " (" + value.toString() + "ms" + ")"
+}
