@@ -2,9 +2,8 @@ package wrtc
 
 import (
 	"fmt"
-	"os"
-
 	"github.com/at-wat/ebml-go/webm"
+	"os"
 
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -84,7 +83,6 @@ func (s *VideoRecorder) PushVP8(rtpPacket *rtp.Packet) {
 			height := int((raw >> 16) & 0x3FFF)
 
 			if s.videoWriter == nil || s.audioWriter == nil {
-				// Initialize WebM saver using received frame size.
 				s.InitWriter(width, height)
 			}
 		}

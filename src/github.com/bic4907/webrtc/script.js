@@ -3,6 +3,7 @@ dataChannelLog = document.getElementById('data-channel'),
 iceConnectionLog = document.getElementById('ice-connection-state')
 iceGatheringLog = document.getElementById('ice-gathering-state')
 signalingLog = document.getElementById('signaling-state')
+latencyLog = document.getElementById('latency')
 
 document.getElementById('video').muted = true
 
@@ -12,15 +13,10 @@ document.getElementById('video').muted = true
 
 
 // peer connection
-var pc = null;
-
-
-
+let pc = null;
 // data channel
-var dc = null, dcInterval = null;
-
-var log = msg => {
-}
+let dc = null, dcInterval = null;
+let pingTable = {}
 
 function createPeerConnection() {
 
@@ -38,8 +34,6 @@ function createPeerConnection() {
     pc.addEventListener('iceconnectionstatechange', function() {
         iceConnectionLog.textContent += ' -> ' + pc.iceConnectionState;
 
-
-
     }, false);
     iceConnectionLog.textContent = pc.iceConnectionState;
 
@@ -54,11 +48,12 @@ function createPeerConnection() {
             pc.createOffer().then(d => pc.setLocalDescription(d))
         })
 
-    pc.oniceconnectionstatechange = e => log(pc.iceConnectionState)
+    pc.oniceconnectionstatechange = event => {
+        console.log(pc.iceConnectionState)
+    }
+
     pc.onicecandidate = event => {
         if (event.candidate === null) {
-            console.log(btoa(JSON.stringify(pc.localDescription)))
-
             $.ajax({
                 url: '/connect',
                 method: 'POST',
@@ -74,15 +69,30 @@ function createPeerConnection() {
     }
 
     dc = pc.createDataChannel('health-check')
-    dc.addEventListener('open', event => {
 
+    dc.addEventListener('open', event => {
+        let count = 1000
         dcInterval = setInterval(function() {
-            dc.send('ping')
+            dc.send('ping-' + count)
+            pingTable['ping-' + count] = (new Date).getMilliseconds()
+            count += 1000
         }, 500)
 
     })
     dc.addEventListener('message', event => {
         console.log(event.data)
+        if(event.data == 'video-ok') {
+            setStatus('connected')
+        }
+        if(event.data.toString().startsWith('pong')) {
+            arr = event.data.toString().split('-')
+
+            prev = pingTable['ping-' + arr[1]]
+            gap = (new Date).getMilliseconds() - prev
+            console.log(gap)
+            setLatency(gap)
+        }
+
     })
 
 
@@ -131,6 +141,11 @@ function stop() {
         sender.track.stop();
     });
 
+
+    if(dcInterval != null) {
+        clearInterval(dcInterval)
+    }
+
     // close peer connection
     setTimeout(function() {
         pc.close();
@@ -153,3 +168,7 @@ function setStatus(value) {
     $('.status .' + value).show()
 }
 setStatus('disconnected')
+
+function setLatency(value) {
+    latencyLog.innerText = " (" + value.toString() + "ms" + ")"
+}

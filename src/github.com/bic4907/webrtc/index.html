@@ -41,7 +41,7 @@
             position: fixed;
             top:0;
             width:100%;
-            height:30%;
+            height:15%;
             overflow: auto;
             background:rgba(0, 0, 0, 0.4);
             color:white;
@@ -62,6 +62,7 @@
             font-size:1em;
             cursor:pointer;
         }
+        #latency { display: inline-block; }
         .status { display: inline-block; }
         .pin { width:10px;height:10px;border-radius: 10px;display:inline-block;margin:0 10px; }
     </style>
@@ -85,6 +86,7 @@
             <div class="connecting" style="display:none"><div class="pin" style="background:orange"></div>연결중</div>
             <div class="disconnected"><div class="pin" style="background:red"></div>연결끊김</div>
         </div>
+        <div id="latency"></div>
     </center>
 </div>
 <div id="debug">
@@ -101,7 +103,6 @@
         </p>
 
     </div>
-    <pre id="data-channel" style="height: 200px;"></pre>
 </div>
 <script src="client.js"></script>
 </body>

@@ -5,7 +5,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/google/uuid"
 	"io"
-
+	"strings"
 	"time"
 
 	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
@@ -15,6 +15,7 @@ import (
 
 type Client struct {
 	pc       *webrtc.PeerConnection
+	dc       *webrtc.DataChannel
 	id       uuid.UUID
 	last_hit *timestamp.Timestamp
 	recorder *VideoRecorder
@@ -58,8 +59,9 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 
 	uuid4, _ := uuid.NewRandom()
 
-	client := Client{
+	var client = Client{
 		pc:       peerConnection,
+		dc:       nil,
 		id:       uuid4,
 		last_hit: nil,
 		recorder: recorder,
@@ -89,6 +91,17 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 
 		log(client.id, fmt.Sprintf("Track has started, of type %d: %s", track.PayloadType(), track.Codec().Name))
 
+		if track.Kind() == webrtc.RTPCodecTypeVideo {
+			go func() {
+				ticker := time.NewTicker(time.Second * 1)
+				for range ticker.C {
+					if client.dc != nil && client.pc.ConnectionState().String() == "connected" {
+						client.dc.SendText("video-ok")
+					}
+				}
+			}()
+		}
+
 		for {
 			rtp, readErr := track.ReadRTP()
 
@@ -103,6 +116,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 			switch track.Kind() {
 			case webrtc.RTPCodecTypeAudio:
 				recorder.PushOpus(rtp)
+
 			case webrtc.RTPCodecTypeVideo:
 				recorder.PushVP8(rtp)
 			}
@@ -110,12 +124,16 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	})
 
 	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
+		if d.Label() == "health-check" {
+			client.dc = d
+		}
 
 		d.OnOpen(func() {
 		})
 
 		d.OnMessage(func(msg webrtc.DataChannelMessage) {
-			d.SendText("pong")
+			arr := strings.Split(string(msg.Data), "-")
+			d.SendText("pong-" + arr[1])
 		})
 
 	})
