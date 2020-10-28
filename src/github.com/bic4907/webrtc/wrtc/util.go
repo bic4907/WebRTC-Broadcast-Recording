@@ -12,3 +12,7 @@ func log(id uuid.UUID, str string) {
 
 	fmt.Println(fmt.Sprintf("[%s] %s %s", uid, t, str))
 }
+
+func makeTimestamp() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
+}

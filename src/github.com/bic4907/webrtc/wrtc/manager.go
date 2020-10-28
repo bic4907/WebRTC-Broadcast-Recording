@@ -2,7 +2,6 @@ package wrtc
 
 import (
 	"fmt"
-	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/google/uuid"
 	"io"
 	"strings"
@@ -17,7 +16,7 @@ type Client struct {
 	pc       *webrtc.PeerConnection
 	dc       *webrtc.DataChannel
 	id       uuid.UUID
-	last_hit *timestamp.Timestamp
+	last_hit int64
 	recorder *VideoRecorder
 }
 
@@ -63,7 +62,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 		pc:       peerConnection,
 		dc:       nil,
 		id:       uuid4,
-		last_hit: nil,
+		last_hit: -1,
 		recorder: recorder,
 	}
 	recorder.client = client
@@ -100,12 +99,21 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 					}
 				}
 			}()
+
+			go func() {
+				ticker := time.NewTicker(time.Second * 1)
+				for range ticker.C {
+					if client.last_hit != -1 && makeTimestamp()-client.last_hit > 3000 {
+						log(client.id, fmt.Sprintf("Closed with Time-out"))
+						client.pc.Close()
+						return
+					}
+				}
+			}()
 		}
 
 		for {
 			rtp, readErr := track.ReadRTP()
-
-			//log(client.id, "HI")
 
 			if readErr != nil {
 				if readErr == io.EOF {
@@ -134,6 +142,8 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 		d.OnMessage(func(msg webrtc.DataChannelMessage) {
 			arr := strings.Split(string(msg.Data), "-")
 			d.SendText("pong-" + arr[1])
+
+			client.last_hit = makeTimestamp()
 		})
 
 	})

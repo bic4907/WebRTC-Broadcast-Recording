@@ -1,9 +1,11 @@
 package wrtc
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/at-wat/ebml-go/webm"
-	"os"
+	"os/exec"
+	"time"
 
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
@@ -98,17 +100,29 @@ func (s *VideoRecorder) PushVP8(rtpPacket *rtp.Packet) {
 func (s *VideoRecorder) InitWriter(width, height int) {
 
 	uid := s.client.id.String()
-	filename := uid + ".webm"
-	filepath := videoPath + filename
+	now := time.Now().Format("2006-01-02_15:04:05")
+	filename := uid + ".mp4"
+	filepath := videoPath + now + "_" + filename
 	s.path = filepath
 	s.name = filename
 
-	w, err := os.OpenFile(filepath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
+	// - re : frame input
+	// - -i (pipe:0) : input as pipeline 0
+	ffmpeg := exec.Command("ffmpeg", "-re", "-i", "pipe:0", "-c:v", "libx264", "-loglevel", "panic", filepath) //nolint
+	ffmpegIn, _ := ffmpeg.StdinPipe()
+	ffmpegOut, _ := ffmpeg.StderrPipe()
+	if err := ffmpeg.Start(); err != nil {
 		panic(err)
 	}
 
-	ws, err := webm.NewSimpleBlockWriter(w,
+	go func() {
+		scanner := bufio.NewScanner(ffmpegOut)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+	}()
+
+	ws, err := webm.NewSimpleBlockWriter(ffmpegIn,
 		[]webm.TrackEntry{
 			{
 				Name:            "Audio",
@@ -134,7 +148,6 @@ func (s *VideoRecorder) InitWriter(width, height int) {
 				},
 			},
 		})
-
 	if err != nil {
 		panic(err)
 	}
