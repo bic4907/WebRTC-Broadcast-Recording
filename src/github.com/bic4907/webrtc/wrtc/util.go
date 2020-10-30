@@ -2,8 +2,9 @@ package wrtc
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func log(id uuid.UUID, str string) {

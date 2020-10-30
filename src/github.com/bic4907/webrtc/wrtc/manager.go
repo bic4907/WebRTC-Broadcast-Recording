@@ -1,42 +1,86 @@
 package wrtc
 
 import (
+	list "container/list"
+	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 )
 
+var (
+	clients map[string]*Client = map[string]*Client{}
+)
+
 type Client struct {
-	pc       *webrtc.PeerConnection
-	dc       *webrtc.DataChannel
-	id       uuid.UUID
-	last_hit int64
-	recorder *VideoRecorder
+	pc         *webrtc.PeerConnection
+	dc         *webrtc.DataChannel
+	id         uuid.UUID
+	last_hit   int64
+	recorder   *VideoRecorder
+	candidates *list.List
 }
 
-func CreatePeerConnection(token string) []byte {
+func CreatePeerConnection(token string) (string, string) {
 	recorder := newVideoRecorder()
-	_, answer := createWebRTCConn(recorder, token)
+	client, answer := createWebRTCConn(recorder, token)
 
-	return []byte(answer)
+	clients[client.id.String()] = &client
+
+	return client.id.String(), answer
+}
+
+func AddCandidateToPeerConnnection(uid string, candidate string) (string, string) {
+	client, _ := clients[uid]
+
+	log(client.id, candidate)
+
+	var actual webrtc.ICECandidateInit
+	json.Unmarshal([]byte(candidate), &actual)
+
+	client.pc.AddICECandidate(actual)
+
+	return client.id.String(), webrtcsignal.Encode(client.pc.LocalDescription())
+}
+
+func GetCandidateToPeerConnnection(uid string) (string, string, string) {
+	client, _ := clients[uid]
+
+	var output []string = []string{}
+	for {
+		if client.candidates.Len() == 0 {
+			break
+		}
+
+		var str = (client.candidates.Remove(client.candidates.Front())).(string)
+		output = append(output, str)
+	}
+
+	outputStr, err := json.Marshal(output)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return client.id.String(), webrtcsignal.Encode(client.pc.LocalDescription()), string(outputStr)
 }
 
 func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	// Everything below is the pion-WebRTC API! Thanks for using it ❤️.
 
-	// Prepare the configuration
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
 		},
+		SDPSemantics: webrtc.SDPSemanticsUnifiedPlanWithFallback,
 	}
 
 	// Create a MediaEngine object to configure the supported codec
@@ -59,11 +103,12 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	uuid4, _ := uuid.NewRandom()
 
 	var client = Client{
-		pc:       peerConnection,
-		dc:       nil,
-		id:       uuid4,
-		last_hit: -1,
-		recorder: recorder,
+		pc:         peerConnection,
+		dc:         nil,
+		id:         uuid4,
+		last_hit:   -1,
+		recorder:   recorder,
+		candidates: list.New(),
 	}
 	recorder.client = client
 	client.recorder = recorder
@@ -76,6 +121,22 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 
 	// Set a handler for when a new remote track starts, this handler copies inbound RTP packets,
 	// replaces the SSRC and sends them back
+
+	peerConnection.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
+		}
+
+		b, err := json.Marshal(c.ToJSON())
+		if err != nil {
+		}
+		actualSerialized := string(b)
+
+		log(client.id, actualSerialized)
+
+		client.candidates.PushBack(actualSerialized)
+	})
+
 	peerConnection.OnTrack(func(track *webrtc.Track, receiver *webrtc.RTPReceiver) {
 
 		go func() {
@@ -105,6 +166,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 				for range ticker.C {
 					if client.last_hit != -1 && makeTimestamp()-client.last_hit > 3000 {
 						log(client.id, fmt.Sprintf("Closed with Time-out"))
+						client.recorder.Close()
 						client.pc.Close()
 						return
 					}

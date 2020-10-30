@@ -1,8 +1,15 @@
 FROM ubuntu:18.04
 
 RUN apt-get update
-RUN apt-get install -y npm
 RUN apt install -y ffmpeg
 
-COPY ./package.json ./packge.json
-RUN npm install
+RUN apt-get install -y gcc make
+RUN apt-get install -y wget
+
+RUN wget https://dl.google.com/go/go1.15.linux-amd64.tar.gz  
+RUN tar -xvf go1.15.linux-amd64.tar.gz  
+RUN mv go /usr/local  
+
+RUN apt-get install -y git
+
+ENV PATH /usr/local/go/bin:$PATH

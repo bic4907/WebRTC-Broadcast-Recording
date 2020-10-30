@@ -2,11 +2,12 @@ package web
 
 import (
 	"fmt"
-	"github.com/bic4907/webrtc/wrtc"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"os/signal"
+
+	"github.com/bic4907/webrtc/wrtc"
 )
 
 func StartWebService() {
@@ -14,6 +15,8 @@ func StartWebService() {
 
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/connect", connectHandler)
+	http.HandleFunc("/add-candidate", addCandidateHandler)
+	http.HandleFunc("/get-candidate", getCandidateHandler)
 	http.HandleFunc("/client.js", scriptHandler)
 
 	var err error
@@ -54,8 +57,19 @@ func scriptHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func addCandidateHandler(w http.ResponseWriter, r *http.Request) {
+
+	clientId, resp := wrtc.AddCandidateToPeerConnnection(r.FormValue("uid"), r.FormValue("candidate"))
+	w.Write([]byte(clientId + "\t" + resp))
+}
+
+func getCandidateHandler(w http.ResponseWriter, r *http.Request) {
+
+	clientId, resp, output := wrtc.GetCandidateToPeerConnnection(r.FormValue("uid"))
+	w.Write([]byte(clientId + "\t" + resp + "\t" + output))
+}
+
 func connectHandler(w http.ResponseWriter, r *http.Request) {
-
-	w.Write(wrtc.CreatePeerConnection(r.FormValue("localDescription")))
-
+	clientId, resp := wrtc.CreatePeerConnection(r.FormValue("localDescription"))
+	w.Write([]byte(clientId + "\t" + resp))
 }

@@ -14,20 +14,31 @@ document.getElementById('video').muted = true
 
 // peer connection
 let pc = null;
+let uid = null;
+
 // data channel
 let dc = null, dcInterval = null;
+let candidateItv = null
 let pingTable = {}
 
 function createPeerConnection() {
 
     let config = {
         sdpSemantics: 'unified-plan',
-        iceServers: [{urls: ['stun:stun.l.google.com:19302']}]
+        iceServers: [
+            {urls: ['stun:stun.l.google.com:19302']},
+        ]
     };
     pc = new RTCPeerConnection(config);
 
     pc.addEventListener('icegatheringstatechange', function() {
         iceGatheringLog.textContent += ' -> ' + pc.iceGatheringState;
+
+
+        console.log(pc.iceGatheringState)
+
+
+
     }, false);
     iceGatheringLog.textContent = pc.iceGatheringState;
 
@@ -42,31 +53,114 @@ function createPeerConnection() {
     }, false);
     signalingLog.textContent = pc.signalingState
 
+
+
+    pc.addEventListener('icecandidate', function(e) {
+        if(e == null || e.candidate == null) return
+
+        $.ajax({
+            url: '/add-candidate',
+            method: 'POST',
+            data: {
+                uid: uid,
+                candidate: JSON.stringify(e.candidate)
+            },
+        }).success(function(data) {
+            arr = data.split('\t')
+            uid = arr[0]
+            desc = JSON.parse(atob(arr[1]))
+            //pc.setRemoteDescription(new RTCSessionDescription(desc))
+        })
+
+        if(candidateItv == null) {
+            candidateItv = setInterval(function() {
+                $.ajax({
+                    url: '/get-candidate',
+                    method: 'POST',
+                    data: {
+                        uid: uid,
+                    },
+                }).success(function(data) {
+                    arr = data.split('\t')
+                    uid = arr[0]
+                    desc = JSON.parse(atob(arr[1]))
+                    candidates = JSON.parse(arr[2])
+
+                    candidates.forEach(element => {
+
+                        candidate = JSON.parse(element)
+                        console.log(candidate)
+
+                        pc.addIceCandidate(candidate)
+                    });
+
+
+
+
+                    //pc.setRemoteDescription(new RTCSessionDescription(desc))
+                })
+
+                if(pc.iceConnectionState == 'connected') {
+                    clearInterval(candidateItv)
+                }
+
+
+            }, 300)   
+        }  
+
+	})
+
+
     navigator.mediaDevices.getUserMedia({video: true, audio: true})
         .then(stream => {
             pc.addStream(document.getElementById('video').srcObject = stream)
-            pc.createOffer().then(d => pc.setLocalDescription(d))
+            pc.createOffer().then(d => {
+                
+                pc.setLocalDescription(d)
+
+                $.ajax({
+                    url: '/connect',
+                    method: 'POST',
+                    async: false,
+                    data: {
+                        localDescription: btoa(JSON.stringify(pc.localDescription))
+                    },
+                }).success(function(data) {
+                    arr = data.split('\t')
+                    console.log(arr)
+                    uid = arr[0]
+                    desc = JSON.parse(atob(arr[1]))
+                    pc.setRemoteDescription(new RTCSessionDescription(desc))
+                })
+        
+
+  
+            })            
         })
 
+
+            /*
+        $.ajax({
+            url: '/connect',
+            method: 'POST',
+            async: false,
+            data: {
+                localDescription: btoa(JSON.stringify(pc.localDescription))
+            },
+        }).success(function(data) {
+            arr = data.split('\t')
+            console.log(arr)
+            uid = arr[0]
+            desc = JSON.parse(atob(arr[1]))
+            pc.setRemoteDescription(new RTCSessionDescription(desc))
+        })
+
+    
+*/
     pc.oniceconnectionstatechange = event => {
         console.log(pc.iceConnectionState)
     }
 
-    pc.onicecandidate = event => {
-        if (event.candidate === null) {
-            $.ajax({
-                url: '/connect',
-                method: 'POST',
-                async: false,
-                data: {
-                    localDescription: btoa(JSON.stringify(pc.localDescription))
-                },
-            }).success(function(data) {
-                pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(atob(data))))
-            })
-
-        }
-    }
 
     dc = pc.createDataChannel('health-check')
 
@@ -91,7 +185,7 @@ function createPeerConnection() {
             gap = (new Date).getMilliseconds() - prev
             console.log(gap)
             setLatency(gap)
-        }
+        } 
 
     })
 
@@ -144,7 +238,13 @@ function stop() {
 
     if(dcInterval != null) {
         clearInterval(dcInterval)
+        dcInterval = null
     }
+    if(candidateItv != null) {
+        clearInterval(candidateItv)
+        candidateItv = null
+    }
+    
 
     // close peer connection
     setTimeout(function() {

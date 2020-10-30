@@ -8,9 +8,5 @@ services:
     # network_mode: "host" # Only use on linux!
     ports:
       - "10001:10001"
-    working_dir: /code
-    command:
-      - /bin/bash
-      - -c
-      - npm install
-      - node index.js
+    working_dir: /code/src/github.com/bic4907/webrtc
+    command: go run main.go
