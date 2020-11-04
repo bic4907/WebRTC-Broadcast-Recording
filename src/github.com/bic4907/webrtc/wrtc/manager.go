@@ -23,14 +23,20 @@ type Client struct {
 	pc         *webrtc.PeerConnection
 	dc         *webrtc.DataChannel
 	id         uuid.UUID
+	user_id    string
 	last_hit   int64
 	recorder   *VideoRecorder
 	candidates *list.List
+
+	videoTrack *webrtc.Track
+	audioTrack *webrtc.Track
 }
 
-func CreatePeerConnection(token string) (string, string) {
+func CreatePeerConnection(token string, user_id string) (string, string) {
 	recorder := newVideoRecorder()
 	client, answer := createWebRTCConn(recorder, token)
+
+	client.user_id = user_id
 
 	clients[client.id.String()] = &client
 
@@ -113,9 +119,9 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	recorder.client = client
 	client.recorder = recorder
 
-	if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeAudio); err != nil {
+	if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
 		panic(err)
-	} else if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeVideo); err != nil {
+	} else if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
 		panic(err)
 	}
 
@@ -174,7 +180,29 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 			}()
 		}
 
+		log(client.id, fmt.Sprintf(fmt.Sprintf("%x", &client)))
+
+		switch track.Kind() {
+		case webrtc.RTPCodecTypeAudio:
+			client.audioTrack = track
+
+		case webrtc.RTPCodecTypeVideo:
+			client.videoTrack = track
+		}
+
+		go func() {
+			ticker := time.NewTicker(time.Second * 1)
+			for range ticker.C {
+				for _, element := range clients {
+
+					log(element.id, fmt.Sprintf(fmt.Sprintf("%s", element.videoTrack)))
+				}
+
+			}
+		}()
+
 		for {
+
 			rtp, readErr := track.ReadRTP()
 
 			if readErr != nil {
@@ -191,6 +219,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 				recorder.PushVP8(rtp)
 			}
 		}
+
 	})
 
 	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
