@@ -4,12 +4,11 @@ import (
 	list "container/list"
 	"encoding/json"
 	"fmt"
+	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
 	"github.com/google/uuid"
+	"github.com/pion/webrtc/v3"
 	"strings"
 	"time"
-
-	webrtcsignal "github.com/bic4907/webrtc/internal/signal"
-	"github.com/pion/webrtc/v3"
 )
 
 var (
@@ -19,13 +18,15 @@ var (
 type Viewer struct {
 	pc         *webrtc.PeerConnection
 	dc         *webrtc.DataChannel
+	dc2        *webrtc.DataChannel
 	id         uuid.UUID
 	last_hit   int64
 	target_uid string
 	candidates *list.List
 
-	videoTrack chan *webrtc.Track
-	audioTrack chan *webrtc.Track
+	videoTrack *webrtc.Track
+	audioTrack *webrtc.Track
+	videoBuf	chan []byte
 }
 
 func CreateViewerConnection(token string, target_uid string) (string, string) {
@@ -50,7 +51,11 @@ func AddCandidateToViewerConnection(uid string, candidate string) (string, strin
 }
 
 func GetCandidateToViewerConnection(uid string) (string, string, string) {
-	client, _ := viewers[uid]
+	client, exists := viewers[uid]
+
+	if exists == false {
+		panic("Not exists viewer session")
+	}
 
 	var output []string = []string{}
 	for {
@@ -110,11 +115,7 @@ func createViewerConn(token string, target_uid string) (Viewer, string) {
 		target_uid: target_uid,
 	}
 
-	if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
-		panic(err)
-	} else if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
-		panic(err)
-	}
+
 
 	// Set a handler for when a new remote track starts, this handler copies inbound RTP packets,
 	// replaces the SSRC and sends them back
@@ -149,17 +150,32 @@ func createViewerConn(token string, target_uid string) (Viewer, string) {
 	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
 		if d.Label() == "health-check" {
 			client.dc = d
+
+			d.OnOpen(func() {
+			})
+
+			d.OnMessage(func(msg webrtc.DataChannelMessage) {
+				arr := strings.Split(string(msg.Data), "-")
+				d.SendText("pong-" + arr[1])
+
+				client.last_hit = makeTimestamp()
+			})
+
+		} else if d.Label() == "track" {
+
+			client.dc2 = d
+
+			d.OnOpen(func() {
+			})
+
+
+
+
 		}
 
-		d.OnOpen(func() {
-		})
 
-		d.OnMessage(func(msg webrtc.DataChannelMessage) {
-			arr := strings.Split(string(msg.Data), "-")
-			d.SendText("pong-" + arr[1])
 
-			client.last_hit = makeTimestamp()
-		})
+
 
 	})
 
@@ -167,36 +183,70 @@ func createViewerConn(token string, target_uid string) (Viewer, string) {
 		log(client.id, fmt.Sprintf("Connection State has changed %s", connectionState.String()))
 
 		if connectionState.String() == "disconnected" {
+			delete(viewers, client.id.String())
 			//client.recorder.Close()
 		} else if connectionState.String() == "connected" {
-			for {
-				if (client.videoTrack == nil) || (client.audioTrack == nil) {
 
-					//log(client.id, fmt.Sprintf("Track connecting to %s...", client.target_uid))
+			//go func() {
+			//	for {
+			//
+			//		_, exists := viewers[client.id.String()]
+			//		if exists == false {
+			//			return
+			//		}
+			//
+			//
+			//		if (viewers[client.id.String()].videoTrack == nil) || (viewers[client.id.String()].audioTrack == nil) {
+			//
+			//			//log(client.id, fmt.Sprintf("Track connecting to %s...", client.target_uid))
+			//
+			//			log(client.id, fmt.Sprintf(fmt.Sprintf("Clients Remote * %s -> %x (%s, %s)", client.id, &clients)))
+			//
+			//			for _, element := range clients {
+			//
+			//				log(client.id, fmt.Sprintf(fmt.Sprintf("For %s -> %x (%s, %s)", element.id, &element, element.videoTrack == nil, element.audioTrack == nil)))
+			//
+			//				_, exists := viewers[client.id.String()]
+			//				if exists == false {
+			//					return
+			//				}
+			//
+			//
+			//				if element.user_id != client.target_uid {
+			//					continue
+			//				}
+			//
+			//				if element.videoTrack != nil {
+			//					localTrack, _ := client.pc.NewTrack(element.videoTrack.PayloadType(), element.videoTrack.SSRC(), "video", "pion")
+			//
+			//					//client.pc.AddTrack(localTrack)
+			//					viewers[client.id.String()].videoTrack = localTrack
+			//					log(client.id, fmt.Sprintf(fmt.Sprintf("VideoTrack %s -> %s", element.id, element.videoTrack)))
+			//
+			//
+			//				}
+			//				if element.audioTrack != nil {
+			//
+			//					//localTrack, _ := client.pc.NewTrack(element.audioTrack.PayloadType(), element.audioTrack.SSRC(), "audio", "pion")
+			//					//client.pc.AddTrack(localTrack)
+			//					//viewers[client.id.String()].audioTrack = localTrack
+			//
+			//					//log(client.id, fmt.Sprintf(fmt.Sprintf("AudioTrack %s -> %s", element.id, element.audioTrack)))
+			//				}
+			//
+			//				//client.dc2.SendText(webrtcsignal.Encode(client.pc.LocalDescription()))
+			//
+			//			}
+			//		} else {
+			//			//log(client.id, fmt.Sprintf("Track connected to %s", client.target_uid))
+			//			//client.dc2.SendText(webrtcsignal.Encode(client.pc.LocalDescription()))
+			//		}
+			//
+			//		time.Sleep(time.Second)
+			//	}
+			//}()
 
-					for _, element := range clients {
 
-						//log(element.id, fmt.Sprintf(fmt.Sprintf("%s", element.videoTrack)))
-
-						if element.user_id != client.target_uid {
-							continue
-						}
-
-						if element.videoTrack != nil {
-							localTrack, _ := peerConnection.NewTrack(element.videoTrack.PayloadType(), element.videoTrack.SSRC(), "video", "pion")
-							client.videoTrack <- localTrack
-						}
-						if element.audioTrack != nil {
-							localTrack, _ := peerConnection.NewTrack(element.audioTrack.PayloadType(), element.audioTrack.SSRC(), "audio", "pion-")
-							client.audioTrack <- localTrack
-						}
-					}
-				} else {
-					log(client.id, fmt.Sprintf("Track connected to %s", client.target_uid))
-				}
-
-				time.Sleep(time.Second)
-			}
 		}
 
 	})
@@ -204,6 +254,63 @@ func createViewerConn(token string, target_uid string) (Viewer, string) {
 	// Wait for the offer to be pasted
 	offer := webrtc.SessionDescription{}
 	webrtcsignal.Decode(token, &offer)
+
+	viewers[client.id.String()] = &client
+
+	for {
+
+		if (viewers[client.id.String()].videoTrack == nil) || (viewers[client.id.String()].audioTrack == nil) {
+
+			log(client.id, fmt.Sprintf(fmt.Sprintf("Clients Remote * %s -> %x (%s, %s)", client.id, &clients)))
+
+			for _, element := range clients {
+
+				log(client.id, fmt.Sprintf(fmt.Sprintf("For %s -> %x (%s, %s)", element.id, &element, element.videoTrack == nil, element.audioTrack == nil)))
+
+				_, exists := viewers[client.id.String()]
+				if exists == false {
+					continue
+				}
+
+
+				if element.user_id != client.target_uid {
+					continue
+				}
+
+				if element.videoTrack != nil {
+					localTrack, _ := client.pc.NewTrack(element.videoTrack.PayloadType(), element.videoTrack.SSRC(), "video", "pion")
+
+					client.pc.AddTrack(localTrack)
+					viewers[client.id.String()].videoTrack = localTrack
+					log(client.id, fmt.Sprintf(fmt.Sprintf("VideoTrack %s -> %s", element.id, element.videoTrack)))
+
+
+				}
+				if element.audioTrack != nil {
+
+					localTrack, _ := client.pc.NewTrack(element.audioTrack.PayloadType(), element.audioTrack.SSRC(), "audio", "pion")
+					client.pc.AddTrack(localTrack)
+					viewers[client.id.String()].audioTrack = localTrack
+
+					log(client.id, fmt.Sprintf(fmt.Sprintf("AudioTrack %s -> %s", element.id, element.audioTrack)))
+				}
+
+				//client.dc2.SendText(webrtcsignal.Encode(client.pc.LocalDescription()))
+
+			}
+		} else {
+			break
+			//log(client.id, fmt.Sprintf("Track connected to %s", client.target_uid))
+			//client.dc2.SendText(webrtcsignal.Encode(client.pc.LocalDescription()))
+		}
+
+		time.Sleep(time.Second)
+	}
+
+
+
+
+	//localTrack, _ := client.pc.NewTrack(element.videoTrack.PayloadType(), element.videoTrack.SSRC(), "video", "pion")
 
 	// Set the remote SessionDescription
 	err = peerConnection.SetRemoteDescription(offer)

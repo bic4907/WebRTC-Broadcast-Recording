@@ -1,17 +1,16 @@
 // get DOM elements
-dataChannelLog = document.getElementById('data-channel'),
-    iceConnectionLog = document.getElementById('ice-connection-state')
+dataChannelLog = document.getElementById('data-channel')
+iceConnectionLog = document.getElementById('ice-connection-state')
 iceGatheringLog = document.getElementById('ice-gathering-state')
 signalingLog = document.getElementById('signaling-state')
 latencyLog = document.getElementById('latency')
 
-document.getElementById('video').muted = true
 
 
 
 
 
-
+let remoteStream
 // peer connection
 let pc = null;
 let uid = null;
@@ -53,6 +52,16 @@ function createPeerConnection() {
     }, false);
     signalingLog.textContent = pc.signalingState
 
+    pc.addEventListener('track', function(event) {
+        console.log(event);
+
+        setStatus('connected')
+        remoteStream.addTrack(event.track, remoteStream)
+
+        document.getElementById("video").srcObject = remoteStream
+
+    });
+
 
 
     pc.addEventListener('icecandidate', function(e) {
@@ -89,7 +98,7 @@ function createPeerConnection() {
                     candidates.forEach(element => {
 
                         candidate = JSON.parse(element)
-                        console.log(candidate)
+                        //console.log(candidate)
 
                         pc.addIceCandidate(candidate)
                     });
@@ -118,6 +127,7 @@ function createPeerConnection() {
 
 
     dc = pc.createDataChannel('health-check')
+    dc2 = pc.createDataChannel('track')
 
     dc.addEventListener('open', event => {
         let count = 1000
@@ -128,8 +138,9 @@ function createPeerConnection() {
         }, 500)
 
     })
+
+
     dc.addEventListener('message', event => {
-        console.log(event.data)
         if(event.data == 'video-ok') {
             setStatus('connected')
         }
@@ -138,7 +149,6 @@ function createPeerConnection() {
 
             prev = pingTable['ping-' + arr[1]]
             gap = (new Date).getMilliseconds() - prev
-            console.log(gap)
             setLatency(gap)
         }
 
@@ -159,7 +169,11 @@ function start() {
 
     document.getElementById('start').style.display = 'none';
 
+    remoteStream = new MediaStream();
+
     pc = createPeerConnection();
+    pc.addTransceiver('video')
+    pc.addTransceiver('audio')
 
     pc.createOffer().then(d => {
 

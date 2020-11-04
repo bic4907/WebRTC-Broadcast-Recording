@@ -100,7 +100,7 @@ func (s *VideoRecorder) PushVP8(rtpPacket *rtp.Packet) {
 func (s *VideoRecorder) InitWriter(width, height int) {
 
 	uid := s.client.id.String()
-	now := time.Now().Format("2006-01-02_15:04:05")
+	now := time.Now().Format("2006-01-02_15-04-05")
 	filename := uid + ".mp4"
 	filepath := videoPath + now + "_" + filename
 	s.path = filepath
