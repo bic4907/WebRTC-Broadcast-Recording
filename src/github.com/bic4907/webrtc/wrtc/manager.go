@@ -23,17 +23,23 @@ type Client struct {
 	pc         *webrtc.PeerConnection
 	dc         *webrtc.DataChannel
 	id         uuid.UUID
+	user_id    string
 	last_hit   int64
 	recorder   *VideoRecorder
 	candidates *list.List
+
+	videoTrack *webrtc.Track
+	audioTrack *webrtc.Track
 }
 
-func CreatePeerConnection(token string) (string, string) {
+func CreatePeerConnection(token string, user_id string) (string, string) {
 	recorder := newVideoRecorder()
 	client, answer := createWebRTCConn(recorder, token)
 
-	clients[client.id.String()] = &client
+	client.user_id = user_id
 
+	clients[client.id.String()] = &client
+	log(client.id, fmt.Sprintf(fmt.Sprintf("%s -> %x", client.id, &client)))
 	return client.id.String(), answer
 }
 
@@ -113,9 +119,9 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	recorder.client = client
 	client.recorder = recorder
 
-	if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeAudio); err != nil {
+	if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
 		panic(err)
-	} else if _, err = peerConnection.AddTransceiver(webrtc.RTPCodecTypeVideo); err != nil {
+	} else if _, err = peerConnection.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
 		panic(err)
 	}
 
@@ -166,6 +172,7 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 				for range ticker.C {
 					if client.last_hit != -1 && makeTimestamp()-client.last_hit > 3000 {
 						log(client.id, fmt.Sprintf("Closed with Time-out"))
+						delete(clients, client.id.String())
 						client.recorder.Close()
 						client.pc.Close()
 						return
@@ -174,15 +181,33 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 			}()
 		}
 
-		for {
-			rtp, readErr := track.ReadRTP()
+		log(client.id, fmt.Sprintf(fmt.Sprintf("%x", &client)))
 
-			if readErr != nil {
-				if readErr == io.EOF {
+		log(client.id, fmt.Sprintf(fmt.Sprintf("Clients * %s -> %x", client.id, &clients)))
+
+		switch track.Kind() {
+		case webrtc.RTPCodecTypeAudio:
+			clients[client.id.String()].audioTrack = track
+			log(client.id, fmt.Sprintf(fmt.Sprintf("Track * %s -> %x", client.id, &client)))
+
+		case webrtc.RTPCodecTypeVideo:
+			clients[client.id.String()].videoTrack = track
+			log(client.id, fmt.Sprintf(fmt.Sprintf("Track * %s -> %x", client.id, &client)))
+		}
+
+
+
+		for {
+
+			rtp, err := track.ReadRTP()
+			if err != nil {
+				if err == io.EOF {
 					return
 				}
-				panic(readErr)
+				panic(err)
 			}
+
+
 			switch track.Kind() {
 			case webrtc.RTPCodecTypeAudio:
 				recorder.PushOpus(rtp)
@@ -190,7 +215,43 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 			case webrtc.RTPCodecTypeVideo:
 				recorder.PushVP8(rtp)
 			}
+
+
+			// Stream to viewer clients
+			for _, element := range viewers {
+				if element.target_uid == clients[client.id.String()].user_id {
+					//log(client.id, "Connect!!!!!!!")
+
+
+					switch track.Kind() {
+					case webrtc.RTPCodecTypeAudio:
+						if element.audioTrack != nil {
+							element.audioTrack.WriteRTP(rtp)
+						}
+
+					case webrtc.RTPCodecTypeVideo:
+						if element.videoTrack != nil {
+							//log(element.id, fmt.Sprintf(fmt.Sprintf("Yeah %s -> %x (%s)", element.id, &element, element.videoTrack.Codec())))
+
+							//fmt.Println(rtp)
+							element.videoTrack.WriteRTP(rtp)
+						}
+
+					}
+
+
+
+				}
+
+
+			}
+
+
+
+
+
 		}
+
 	})
 
 	peerConnection.OnDataChannel(func(d *webrtc.DataChannel) {
@@ -245,8 +306,6 @@ func createWebRTCConn(recorder *VideoRecorder, token string) (Client, string) {
 	}
 
 	<-gatherComplete
-	// Output the answer in base64 so we can paste it in browser
-	//fmt.Println(webrtcsignal.Encode(answer))
 
 	return client, webrtcsignal.Encode(answer)
 }

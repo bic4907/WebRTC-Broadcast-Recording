@@ -19,6 +19,12 @@ func StartWebService() {
 	http.HandleFunc("/get-candidate", getCandidateHandler)
 	http.HandleFunc("/client.js", scriptHandler)
 
+	http.HandleFunc("/viewer", viewerIndexHandler)
+	http.HandleFunc("/viewer.js", viewerScriptHandler)
+	http.HandleFunc("/viewer-connect", viewerConnectHandler)
+	http.HandleFunc("/viewer-add-candidate", viewerAddCandidateHandler)
+	http.HandleFunc("/viewer-get-candidate", viewerGetCandidateHandler)
+
 	var err error
 	// Check SSL Certification
 	if fileExists("certs/cert.pem") && fileExists("certs/privkey.pem") {
@@ -70,6 +76,40 @@ func getCandidateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func connectHandler(w http.ResponseWriter, r *http.Request) {
-	clientId, resp := wrtc.CreatePeerConnection(r.FormValue("localDescription"))
+	clientId, resp := wrtc.CreatePeerConnection(r.FormValue("localDescription"), r.FormValue("user_id"))
 	w.Write([]byte(clientId + "\t" + resp))
+}
+
+func viewerIndexHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := ioutil.ReadFile("viewer.html")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	w.Write(data)
+}
+
+func viewerScriptHandler(w http.ResponseWriter, r *http.Request) {
+	data, err := ioutil.ReadFile("viewer.js")
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	w.Write(data)
+}
+
+func viewerConnectHandler(w http.ResponseWriter, r *http.Request) {
+
+	clientId, resp := wrtc.CreateViewerConnection(r.FormValue("localDescription"), "1")
+	w.Write([]byte(clientId + "\t" + resp))
+}
+
+func viewerAddCandidateHandler(w http.ResponseWriter, r *http.Request) {
+	clientId, resp := wrtc.AddCandidateToViewerConnection(r.FormValue("uid"), r.FormValue("candidate"))
+	w.Write([]byte(clientId + "\t" + resp))
+}
+
+func viewerGetCandidateHandler(w http.ResponseWriter, r *http.Request) {
+	clientId, resp, output := wrtc.GetCandidateToViewerConnection(r.FormValue("uid"))
+	w.Write([]byte(clientId + "\t" + resp + "\t" + output))
 }

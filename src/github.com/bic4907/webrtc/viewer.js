@@ -1,17 +1,16 @@
 // get DOM elements
-dataChannelLog = document.getElementById('data-channel'),
+dataChannelLog = document.getElementById('data-channel')
 iceConnectionLog = document.getElementById('ice-connection-state')
 iceGatheringLog = document.getElementById('ice-gathering-state')
 signalingLog = document.getElementById('signaling-state')
 latencyLog = document.getElementById('latency')
 
-document.getElementById('video').muted = true
 
 
 
 
 
-
+let remoteStream
 // peer connection
 let pc = null;
 let uid = null;
@@ -53,13 +52,23 @@ function createPeerConnection() {
     }, false);
     signalingLog.textContent = pc.signalingState
 
+    pc.addEventListener('track', function(event) {
+        console.log(event);
+
+        setStatus('connected')
+        remoteStream.addTrack(event.track, remoteStream)
+
+        document.getElementById("video").srcObject = remoteStream
+
+    });
+
 
 
     pc.addEventListener('icecandidate', function(e) {
         if(e == null || e.candidate == null) return
 
         $.ajax({
-            url: '/add-candidate',
+            url: '/viewer-add-candidate',
             method: 'POST',
             data: {
                 uid: uid,
@@ -75,7 +84,7 @@ function createPeerConnection() {
         if(candidateItv == null) {
             candidateItv = setInterval(function() {
                 $.ajax({
-                    url: '/get-candidate',
+                    url: '/viewer-get-candidate',
                     method: 'POST',
                     data: {
                         uid: uid,
@@ -89,7 +98,7 @@ function createPeerConnection() {
                     candidates.forEach(element => {
 
                         candidate = JSON.parse(element)
-                        console.log(candidate)
+                        //console.log(candidate)
 
                         pc.addIceCandidate(candidate)
                     });
@@ -105,67 +114,20 @@ function createPeerConnection() {
                 }
 
 
-            }, 300)   
-        }  
+            }, 300)
+        }
 
-	})
-
-
-    navigator.mediaDevices.getUserMedia({video: true, audio: true})
-        .then(stream => {
-            pc.addStream(document.getElementById('video').srcObject = stream)
-            pc.createOffer().then(d => {
-                
-                pc.setLocalDescription(d)
-
-                let user_id = prompt('User ID를 입력하세요', '')
-
-                $.ajax({
-                    url: '/connect',
-                    method: 'POST',
-                    async: false,
-                    data: {
-                        localDescription: btoa(JSON.stringify(pc.localDescription)),
-                        user_id: user_id
-                    },
-                }).success(function(data) {
-                    arr = data.split('\t')
-                    console.log(arr)
-                    uid = arr[0]
-                    desc = JSON.parse(atob(arr[1]))
-                    pc.setRemoteDescription(new RTCSessionDescription(desc))
-                })
-        
-
-  
-            })            
-        })
+    })
 
 
-            /*
-        $.ajax({
-            url: '/connect',
-            method: 'POST',
-            async: false,
-            data: {
-                localDescription: btoa(JSON.stringify(pc.localDescription))
-            },
-        }).success(function(data) {
-            arr = data.split('\t')
-            console.log(arr)
-            uid = arr[0]
-            desc = JSON.parse(atob(arr[1]))
-            pc.setRemoteDescription(new RTCSessionDescription(desc))
-        })
 
-    
-*/
     pc.oniceconnectionstatechange = event => {
         console.log(pc.iceConnectionState)
     }
 
 
     dc = pc.createDataChannel('health-check')
+    dc2 = pc.createDataChannel('track')
 
     dc.addEventListener('open', event => {
         let count = 1000
@@ -176,8 +138,9 @@ function createPeerConnection() {
         }, 500)
 
     })
+
+
     dc.addEventListener('message', event => {
-        console.log(event.data)
         if(event.data == 'video-ok') {
             setStatus('connected')
         }
@@ -186,9 +149,8 @@ function createPeerConnection() {
 
             prev = pingTable['ping-' + arr[1]]
             gap = (new Date).getMilliseconds() - prev
-            console.log(gap)
             setLatency(gap)
-        } 
+        }
 
     })
 
@@ -207,7 +169,35 @@ function start() {
 
     document.getElementById('start').style.display = 'none';
 
+    remoteStream = new MediaStream();
+
     pc = createPeerConnection();
+    pc.addTransceiver('video')
+    pc.addTransceiver('audio')
+
+    pc.createOffer().then(d => {
+
+        pc.setLocalDescription(d)
+
+        $.ajax({
+            url: '/viewer-connect',
+            method: 'POST',
+            async: false,
+            data: {
+                localDescription: btoa(JSON.stringify(pc.localDescription))
+            },
+        }).success(function(data) {
+            arr = data.split('\t')
+            console.log(arr)
+            uid = arr[0]
+            desc = JSON.parse(atob(arr[1]))
+            pc.setRemoteDescription(new RTCSessionDescription(desc))
+        })
+
+
+
+    })
+
 
 
     document.getElementById('stop').style.display = 'inline-block';
@@ -247,7 +237,7 @@ function stop() {
         clearInterval(candidateItv)
         candidateItv = null
     }
-    
+
 
     // close peer connection
     setTimeout(function() {
@@ -255,14 +245,6 @@ function stop() {
     }, 500);
 }
 
-
-navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-
-    document.getElementById('video').srcObject = stream;
-
-}, function(err) {
-    alert('Could not acquire media: ' + err);
-});
 
 function setStatus(value) {
     $('.status .connected').hide()
