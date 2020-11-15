@@ -2,6 +2,7 @@ package wrtc
 
 import (
 	"fmt"
+	"github.com/pion/webrtc/v3"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,4 +17,13 @@ func log(id uuid.UUID, str string) {
 
 func makeTimestamp() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
+}
+
+var WebRTCConfig = webrtc.Configuration{
+	ICEServers: []webrtc.ICEServer{
+		{
+			URLs: []string{"stun:stun.l.google.com:19302"},
+		},
+	},
+	SDPSemantics: webrtc.SDPSemanticsUnifiedPlanWithFallback,
 }
