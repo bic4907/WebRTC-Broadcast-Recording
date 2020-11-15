@@ -56,6 +56,7 @@ let app = new Vue({
             let self = this
             navigator.mediaDevices.getUserMedia(self.resourceType).then(function (stream) {
                 document.getElementById('video').srcObject = stream
+                document.getElementById('video').muted = true
                 self.addLog('info', '리소스가져오는데 성공함')
             }, function (err) {
                 self.addLog('error', '리소스를 가져올 수 없음')
@@ -79,7 +80,9 @@ let app = new Vue({
                 let json = JSON.parse(evt.data)
 
                 if(json.type === "remoteDescription") {
+
                     self.pc.setRemoteDescription(new RTCSessionDescription(json.message))
+
                 } else if(json.type === "iceCandidate") {
                     if(json.message == null) return
 
@@ -90,12 +93,14 @@ let app = new Vue({
 
                         })
                     }, 1000)
+                } else if(json.type === "duplicatedSession") {
+                    self.addLog('error', 'Duplicated session')
+                    self.disconnect()
                 }
             }
         },
         disconnect: function () {
 
-            if(this.status == 'connecting') return
 
             this.ws.close()
             this.pc.close()
@@ -154,6 +159,8 @@ let app = new Vue({
             }, false);
 
 
+
+
             this.pc.addEventListener('icecandidate', function(e) {
                 if(e.candidate == null) return
 
@@ -190,8 +197,8 @@ let app = new Vue({
                         this.ws.send(JSON.stringify({
                             type: 'broadcastRequest',
                             message: btoa(JSON.stringify(self.pc.localDescription)),
-                            user_id: user_id,
-                            room_id: room_id,
+                            userId: user_id,
+                            roomId: room_id,
                         }))
 
 
@@ -210,10 +217,13 @@ let app = new Vue({
 
 
             let remoteStream = new MediaStream();
+            document.getElementById("video").srcObject = remoteStream
+
             self.pc.addEventListener('track', function(event) {
                 self.status = 'connected'
+                console.log('track', event.track)
                 remoteStream.addTrack(event.track, remoteStream)
-                document.getElementById("video").srcObject = remoteStream
+
             });
 
 
@@ -227,8 +237,8 @@ let app = new Vue({
                 this.ws.send(JSON.stringify({
                     type: 'subscribeRequest',
                     message: btoa(JSON.stringify(self.pc.localDescription)),
-                    user_id: user_id,
-                    room_id: room_id,
+                    userId: user_id,
+                    roomId: room_id,
                 }))
             })
         },
@@ -277,329 +287,3 @@ let app = new Vue({
         }
     }
 })
-/*
-$.ajax({
-url: '/connect',
-method: 'POST',
-async: false,
-data: {
-    localDescription: btoa(JSON.stringify(pc.localDescription))
-},
-}).success(function(data) {
-arr = data.split('\t')
-console.log(arr)
-uid = arr[0]
-desc = JSON.parse(atob(arr[1]))
-pc.setRemoteDescription(new RTCSessionDescription(desc))
-})
-
-
-
-
-},
-initalizeReceiver: function() {
-
-
-},
-addLog: function(type, message) {
-this.logs.push({type: type, message: message})
-},
-clearLog: function() {
-this.logs.clear()
-}
-}
-
-
-})
-
-
-
-
-
-
-
-
-
-
-
-
-/*
-
-dataChannelLog = document.getElementById('data-channel'),
-iceConnectionLog = document.getElementById('ice-connection-state')
-iceGatheringLog = document.getElementById('ice-gathering-state')
-signalingLog = document.getElementById('signaling-state')
-latencyLog = document.getElementById('latency')
-
-document.getElementById('video').muted = true
-
-
-
-
-
-
-// peer connection
-let pc = null;
-let uid = null;
-
-// data channel
-let dc = null, dcInterval = null;
-let candidateItv = null
-let pingTable = {}
-
-function createPeerConnection() {
-
-let config = {
-sdpSemantics: 'unified-plan',
-iceServers: [
-{urls: ['stun:stun.l.google.com:19302']},
-]
-};
-pc = new RTCPeerConnection(config);
-
-pc.addEventListener('icegatheringstatechange', function() {
-iceGatheringLog.textContent += ' -> ' + pc.iceGatheringState;
-
-
-console.log(pc.iceGatheringState)
-
-
-
-}, false);
-iceGatheringLog.textContent = pc.iceGatheringState;
-
-pc.addEventListener('iceconnectionstatechange', function() {
-iceConnectionLog.textContent += ' -> ' + pc.iceConnectionState;
-
-}, false);
-iceConnectionLog.textContent = pc.iceConnectionState;
-
-pc.addEventListener('signalingstatechange', function() {
-signalingLog.textContent += ' -> ' + pc.signalingState;
-}, false);
-signalingLog.textContent = pc.signalingState
-
-
-
-pc.addEventListener('icecandidate', function(e) {
-if(e == null || e.candidate == null) return
-
-$.ajax({
-url: '/add-candidate',
-method: 'POST',
-data: {
-    uid: uid,
-    candidate: JSON.stringify(e.candidate)
-},
-}).success(function(data) {
-arr = data.split('\t')
-uid = arr[0]
-desc = JSON.parse(atob(arr[1]))
-//pc.setRemoteDescription(new RTCSessionDescription(desc))
-})
-
-if(candidateItv == null) {
-candidateItv = setInterval(function() {
-    $.ajax({
-        url: '/get-candidate',
-        method: 'POST',
-        data: {
-            uid: uid,
-        },
-    }).success(function(data) {
-        arr = data.split('\t')
-        uid = arr[0]
-        desc = JSON.parse(atob(arr[1]))
-        candidates = JSON.parse(arr[2])
-
-        candidates.forEach(element => {
-
-            candidate = JSON.parse(element)
-            console.log(candidate)
-
-            pc.addIceCandidate(candidate)
-        });
-
-
-
-
-        //pc.setRemoteDescription(new RTCSessionDescription(desc))
-    })
-
-    if(pc.iceConnectionState == 'connected') {
-        clearInterval(candidateItv)
-    }
-
-
-}, 300)
-}
-
-})
-
-
-navigator.mediaDevices.getUserMedia({video: true, audio: true})
-.then(stream => {
-pc.addStream(document.getElementById('video').srcObject = stream)
-pc.createOffer().then(d => {
-
-    pc.setLocalDescription(d)
-
-    let user_id = prompt('User ID를 입력하세요', '')
-
-    $.ajax({
-        url: '/connect',
-        method: 'POST',
-        async: false,
-        data: {
-            localDescription: btoa(JSON.stringify(pc.localDescription)),
-            user_id: user_id
-        },
-    }).success(function(data) {
-        arr = data.split('\t')
-        console.log(arr)
-        uid = arr[0]
-        desc = JSON.parse(atob(arr[1]))
-        pc.setRemoteDescription(new RTCSessionDescription(desc))
-    })
-
-
-
-})
-})
-
-
-/*
-$.ajax({
-url: '/connect',
-method: 'POST',
-async: false,
-data: {
-    localDescription: btoa(JSON.stringify(pc.localDescription))
-},
-}).success(function(data) {
-arr = data.split('\t')
-console.log(arr)
-uid = arr[0]
-desc = JSON.parse(atob(arr[1]))
-pc.setRemoteDescription(new RTCSessionDescription(desc))
-})
-
-
-*/
-/*
-    pc.oniceconnectionstatechange = event => {
-        console.log(pc.iceConnectionState)
-    }
-
-
-    dc = pc.createDataChannel('health-check')
-
-    dc.addEventListener('open', event => {
-        let count = 1000
-        dcInterval = setInterval(function() {
-            dc.send('ping-' + count)
-            pingTable['ping-' + count] = (new Date).getMilliseconds()
-            count += 1000
-        }, 500)
-
-    })
-    dc.addEventListener('message', event => {
-        console.log(event.data)
-        if(event.data == 'video-ok') {
-            setStatus('connected')
-        }
-        if(event.data.toString().startsWith('pong')) {
-            arr = event.data.toString().split('-')
-
-            prev = pingTable['ping-' + arr[1]]
-            gap = (new Date).getMilliseconds() - prev
-            console.log(gap)
-            setLatency(gap)
-        } 
-
-    })
-
-
-    return pc;
-}
-
-
-var constraints = {
-    audio: true,
-    video: true
-};
-
-function start() {
-    setStatus('connecting')
-
-    document.getElementById('start').style.display = 'none';
-
-    pc = createPeerConnection();
-
-
-    document.getElementById('stop').style.display = 'inline-block';
-}
-
-function stop() {
-    setStatus('disconnected')
-
-    document.getElementById('stop').style.display = 'none';
-    document.getElementById('start').style.display = 'inline-block';
-
-    // close data channel
-    if (dc) {
-        dc.close();
-    }
-
-    // close transceivers
-    if (pc.getTransceivers) {
-        pc.getTransceivers().forEach(function(transceiver) {
-            if (transceiver.stop) {
-                transceiver.stop();
-            }
-        });
-    }
-
-    // close local audio / video
-    pc.getSenders().forEach(function(sender) {
-        sender.track.stop();
-    });
-
-
-    if(dcInterval != null) {
-        clearInterval(dcInterval)
-        dcInterval = null
-    }
-    if(candidateItv != null) {
-        clearInterval(candidateItv)
-        candidateItv = null
-    }
-    
-
-    // close peer connection
-    setTimeout(function() {
-        pc.close();
-    }, 500);
-}
-
-
-navigator.mediaDevices.getUserMedia(constraints).then(function(stream) {
-
-    document.getElementById('video').srcObject = stream;
-
-}, function(err) {
-    alert('Could not acquire media: ' + err);
-});
-
-function setStatus(value) {
-    $('.status .connected').hide()
-    $('.status .connecting').hide()
-    $('.status .disconnected').hide()
-    $('.status .' + value).show()
-}
-setStatus('disconnected')
-
-function setLatency(value) {
-    latencyLog.innerText = " (" + value.toString() + "ms" + ")"
-}
-*/

@@ -2,6 +2,7 @@ package wrtc
 
 import (
 	"encoding/json"
+	"github.com/bic4907/webrtc/common"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
@@ -19,6 +20,13 @@ type Subscriber struct {
 	UserId      string
 	RoomId      string
 	BroadcastId string
+
+
+	VideoTrack *webrtc.Track
+	AudioTrack *webrtc.Track
+
+	Receiver    chan common.BroadcastChunk
+
 }
 
 
@@ -38,15 +46,32 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 		panic(err)
 	}
 
-	if _, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio); err != nil {
-		panic(err)
-	} else if _, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo); err != nil {
-		panic(err)
-	}
+
+	tr, _ := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
+	pc.AddTrack(tr.Sender().Track())
 
 	subscriber.Pc = pc
 
 	var videoCheckerChannel *webrtc.DataChannel = nil
+
+
+	go func() {
+		for {
+			chunk := <- subscriber.Receiver
+
+			if chunk.CodecType == webrtc.RTPCodecTypeAudio {
+				if subscriber.AudioTrack != nil {
+					err = subscriber.AudioTrack.WriteRTP(chunk.Chunk)
+				}
+			} else {
+				if subscriber.VideoTrack != nil {
+					err = subscriber.VideoTrack.WriteRTP(chunk.Chunk)
+				}
+			}
+
+		}
+
+	}()
 
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
@@ -69,7 +94,6 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 
 	})
 
-
 	pc.OnDataChannel(func(d *webrtc.DataChannel) {
 		if d.Label() == "health-check" {
 			d.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -83,6 +107,7 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 			videoCheckerChannel = d
 		}
 	})
+
 
 
 	err = pc.SetRemoteDescription(description)

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/bic4907/webrtc/common"
 	"github.com/bic4907/webrtc/wrtc"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -27,13 +28,11 @@ func StartWebService() {
 	http.Handle("/static/", http.StripPrefix("/static", http.FileServer(http.Dir(pwd + "/web/src/static"))))
 
 
-	hub := newHub()
-	go hub.run()
+	hub := NewHub()
+	go hub.Run()
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		websocketHandler(hub, w, r)
 	})
-
-
 
 
 
@@ -76,10 +75,19 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	}
 
 	var pc *webrtc.PeerConnection = nil
+	var br *wrtc.Broadcaster = nil
+	var sub *wrtc.Subscriber = nil
 
 	for {
 		mt, message, err := c.ReadMessage()
 		if err != nil {
+			if br != nil {
+				hub.Unregister <- br
+			}
+			if sub != nil {
+				hub.Unsubscribe <- sub
+			}
+
 			break
 		}
 
@@ -109,19 +117,36 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				UserId:      data["userId"],
 				RoomId:      data["roomId"],
 				BroadcastId: data["roomId"] + "_" + data["userId"],
+				BroadcastChannel: make(chan common.BroadcastChunk),
 			}
 
+			go func() {
+				for {
+					chunk := <- broadcaster.BroadcastChannel
+					hub.Broadcast <- chunk
+				}
+			}()
 
-			pc = wrtc.MakeBroadcasterPeerConnection(offer, &broadcaster)
+			prevBroadcaster := hub.GetBroadcaster(broadcaster.BroadcastId)
+			if prevBroadcaster != nil {
+				payload := make(map[string]interface{})
+				payload["type"] = "duplicatedSession"
+				message, _ = json.Marshal(payload)
+				c.WriteMessage(mt, message)
+			} else {
 
-			payload := make(map[string]interface{})
-			payload["type"] = "remoteDescription"
-			payload["message"] = pc.LocalDescription()
-			message, _ = json.Marshal(payload)
+				pc = wrtc.MakeBroadcasterPeerConnection(offer, &broadcaster)
 
-			c.WriteMessage(mt, message)
+				payload := make(map[string]interface{})
+				payload["type"] = "remoteDescription"
+				payload["message"] = pc.LocalDescription()
+				message, _ = json.Marshal(payload)
 
-			break
+				c.WriteMessage(mt, message)
+
+				hub.Register <- &broadcaster
+				br = &broadcaster
+			}
 		case "subscribeRequest":
 
 			b, _ := base64.StdEncoding.DecodeString(data["message"])
@@ -139,9 +164,11 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				UserId:      data["userId"],
 				RoomId:      data["roomId"],
 				BroadcastId: data["roomId"] + "_" + data["userId"],
+				Receiver: make(chan common.BroadcastChunk),
 			}
 
 			pc = wrtc.MakeSubscriberPeerConnection(offer, &subscriber)
+
 
 			payload := make(map[string]interface{})
 			payload["type"] = "remoteDescription"
@@ -151,7 +178,9 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 			c.WriteMessage(mt, message)
 
 
-			break
+			hub.Subscribe <- &subscriber
+			sub = &subscriber
+
 		case "iceCandidate":
 
 			var actual webrtc.ICECandidateInit

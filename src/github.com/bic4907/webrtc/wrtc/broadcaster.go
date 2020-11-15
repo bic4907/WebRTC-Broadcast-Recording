@@ -3,6 +3,7 @@ package wrtc
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/bic4907/webrtc/common"
 	"github.com/google/uuid"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+
 
 type Broadcaster struct {
 	Pc *webrtc.PeerConnection
@@ -25,6 +28,11 @@ type Broadcaster struct {
 	UserId      string
 	RoomId      string
 	BroadcastId string
+
+	VideoTrack *webrtc.Track
+	AudioTrack *webrtc.Track
+
+	BroadcastChannel  chan common.BroadcastChunk
 }
 
 func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadcaster *Broadcaster) *webrtc.PeerConnection {
@@ -58,6 +66,8 @@ func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadc
 
 		if track.Kind() == webrtc.RTPCodecTypeVideo {
 
+			broadcaster.VideoTrack = track
+
 			go func() {
 				ticker := time.NewTicker(time.Second * 1)
 				for range ticker.C {
@@ -84,6 +94,8 @@ func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadc
 					}
 				}
 			}()
+		} else {
+			broadcaster.AudioTrack = track
 		}
 
 		for {
@@ -101,9 +113,17 @@ func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadc
 			case webrtc.RTPCodecTypeAudio:
 				broadcaster.Recorder.PushOpus(rtp)
 
+				chunk := common.BroadcastChunk{BroadcastId: broadcaster.BroadcastId, Chunk: rtp, CodecType: webrtc.RTPCodecTypeAudio}
+				broadcaster.BroadcastChannel <- chunk
+
 			case webrtc.RTPCodecTypeVideo:
 				broadcaster.Recorder.PushVP8(rtp)
+
+				chunk := common.BroadcastChunk{BroadcastId: broadcaster.BroadcastId, Chunk: rtp, CodecType: webrtc.RTPCodecTypeVideo}
+				broadcaster.BroadcastChannel <- chunk
 			}
+
+
 
 		}
 	})
