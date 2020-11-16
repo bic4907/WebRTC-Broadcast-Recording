@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -70,7 +69,6 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Print("upgrade:", err)
 		return
 	}
 
@@ -78,16 +76,26 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	var br *wrtc.Broadcaster = nil
 	var sub *wrtc.Subscriber = nil
 
+	defer func() {
+		c.Close()
+		if br != nil {
+			hub.Unregister <- br
+			br.Ws = nil
+			br = nil
+		}
+		if sub != nil {
+			hub.Unsubscribe <- sub
+			sub.Ws = nil
+			sub = nil
+		}
+		return
+	}()
+
 	for {
+
 		mt, message, err := c.ReadMessage()
 		if err != nil {
-			if br != nil {
-				hub.Unregister <- br
-			}
-			if sub != nil {
-				hub.Unsubscribe <- sub
-			}
-
+			fmt.Println("ERR")
 			break
 		}
 
@@ -96,7 +104,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println(err)
 		}
-
+		fmt.Println(data["type"])
 		switch data["type"] {
 		case "broadcastRequest":
 
@@ -118,6 +126,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				RoomId:      data["roomId"],
 				BroadcastId: data["roomId"] + "_" + data["userId"],
 				BroadcastChannel: make(chan common.BroadcastChunk),
+				IsBroadcasted: false,
 			}
 
 			go func() {
@@ -133,6 +142,9 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				payload["type"] = "duplicatedSession"
 				message, _ = json.Marshal(payload)
 				err = c.WriteMessage(mt, message)
+
+				hub.Unregister <- prevBroadcaster
+
 			} else {
 
 				pc = wrtc.MakeBroadcasterPeerConnection(offer, &broadcaster)
@@ -144,8 +156,9 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 				err = c.WriteMessage(mt, message)
 
-				hub.Register <- &broadcaster
 				br = &broadcaster
+				hub.Register <- &broadcaster
+
 			}
 		case "subscribeRequest":
 
@@ -178,8 +191,8 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 			c.WriteMessage(mt, message)
 
 
-			hub.Subscribe <- &subscriber
 			sub = &subscriber
+			hub.Subscribe <- &subscriber
 
 		case "iceCandidate":
 

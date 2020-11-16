@@ -25,9 +25,11 @@ let app = new Vue({
 
         logs: [],
         videoViewer: null,
+        remoteStream: new MediaStream(),
 
         latency: null,
-        status: 'disconnected'
+        status: 'disconnected',
+
     },
     mounted: function () {
 
@@ -106,8 +108,23 @@ let app = new Vue({
                                 message: btoa(JSON.stringify(self.pc.currentLocalDescription)),
                             }))
                         })
+                        self.addLog('debug', 'Broadcaster connected')
                     })
+                } else if(json.type === "broadcasterExited") {
+                    self.pc.setRemoteDescription(new RTCSessionDescription(json.message)).then(() => {
+                        self.pc.createAnswer().then(answer => {
+                            self.pc.setLocalDescription(answer)
 
+                            self.ws.send(JSON.stringify({
+                                type: 'remoteAnswer',
+                                message: btoa(JSON.stringify(self.pc.currentLocalDescription)),
+                            }))
+
+                            self.remoteStream = new MediaStream();
+                            document.getElementById("video").srcObject = self.remoteStream
+                            self.addLog('debug', 'Broadcaster disconnected')
+                        })
+                    })
 
 
 
@@ -116,9 +133,8 @@ let app = new Vue({
         },
         disconnect: function () {
 
-
-            this.ws.close()
-            this.pc.close()
+            if(this.ws) this.ws.close()
+            if(this.pc) this.pc.close()
 
             this.ws = null
             this.pc = null
@@ -221,23 +237,18 @@ let app = new Vue({
                 })
         },
         initalizeReceiver: function (track) {
-
             let self = this
 
             self.pc = new RTCPeerConnection(self.pcSetting);
             self.attachPeerConnectionHandler()
             self.initializeHealthCheck()
 
-
-
-            let remoteStream = new MediaStream();
-            document.getElementById("video").srcObject = remoteStream
+            document.getElementById("video").srcObject = self.remoteStream
 
             self.pc.addEventListener('track', function(event) {
                 self.status = 'connected'
                 console.log('track', event.track)
-                remoteStream.addTrack(event.track, remoteStream)
-
+                self.remoteStream.addTrack(event.track, self.remoteStream)
             });
 
 

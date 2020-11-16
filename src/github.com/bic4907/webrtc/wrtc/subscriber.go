@@ -65,7 +65,6 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 					err = subscriber.VideoTrack.WriteRTP(chunk.Chunk)
 				}
 			}
-
 		}
 
 	}()
@@ -87,10 +86,11 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 		payload["message"] = actualSerialized
 		message, _ := json.Marshal(payload)
 
-		err = subscriber.Ws.WriteMessage(1, message)
-		if err != nil {
+		defer func() {
+			recover()
+		}()
+		subscriber.Ws.WriteMessage(1, message)
 
-		}
 	})
 
 	pc.OnDataChannel(func(d *webrtc.DataChannel) {

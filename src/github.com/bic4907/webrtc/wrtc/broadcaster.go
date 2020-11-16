@@ -33,6 +33,7 @@ type Broadcaster struct {
 	AudioTrack *webrtc.Track
 
 	BroadcastChannel  chan common.BroadcastChunk
+	IsBroadcasted	  bool
 }
 
 func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadcaster *Broadcaster) *webrtc.PeerConnection {
@@ -86,6 +87,9 @@ func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadc
 
 						broadcaster.Recorder.Close()
 						broadcaster.Pc.Close()
+						if broadcaster.Ws != nil {
+							broadcaster.Ws.Close()
+						}
 						return
 					}
 
@@ -145,6 +149,9 @@ func MakeBroadcasterPeerConnection(description webrtc.SessionDescription, broadc
 		payload["message"] = actualSerialized
 		message, _ := json.Marshal(payload)
 
+		defer func() {
+			recover()
+		}()
 		broadcaster.Ws.WriteMessage(1, message)
 
 	})
