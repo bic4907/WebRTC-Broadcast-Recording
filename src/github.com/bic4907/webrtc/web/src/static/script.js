@@ -120,8 +120,6 @@ let app = new Vue({
                                 message: btoa(JSON.stringify(self.pc.currentLocalDescription)),
                             }))
 
-                            self.remoteStream = new MediaStream();
-                            document.getElementById("video").srcObject = self.remoteStream
                             self.addLog('debug', 'Broadcaster disconnected')
                         })
                     })
