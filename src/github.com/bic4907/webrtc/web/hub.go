@@ -40,7 +40,13 @@ func NewHub() *Hub {
 }
 
 func (h *Hub) Run() {
+
+
 	for {
+
+		defer func() {
+			recover()
+		}()
 
 		select {
 		case broadcaster := <-h.Register:
@@ -50,6 +56,7 @@ func (h *Hub) Run() {
 		case broadcaster := <-h.Unregister:
 			if _, ok := h.broadcasters[broadcaster.BroadcastId]; ok {
 				log.Print("Broadcast unregistered - " + broadcaster.BroadcastId)
+				h.BroadcastBroadcasterExited(broadcaster)
 				delete(h.broadcasters, broadcaster.BroadcastId)
 			}
 
@@ -69,37 +76,9 @@ func (h *Hub) Run() {
 			// Already broadcasting
 			broadcaster, exist := h.broadcasters[subscriber.BroadcastId]
 			if exist {
-
-				if broadcaster.AudioTrack != nil {
-					track, _ := subscriber.Pc.NewTrack(broadcaster.AudioTrack.PayloadType(), broadcaster.AudioTrack.SSRC(), "audio", "pion")
-					subscriber.Pc.AddTrack(track)
-					subscriber.AudioTrack = track
+				if broadcaster.AudioTrack != nil && broadcaster.VideoTrack != nil {
+					AttachBroadcaster(subscriber, broadcaster)
 				}
-				if broadcaster.VideoTrack != nil {
-					track, _ := subscriber.Pc.NewTrack(broadcaster.VideoTrack.PayloadType(), broadcaster.VideoTrack.SSRC(), "video", "pion")
-					subscriber.Pc.AddTrack(track)
-					subscriber.VideoTrack = track
-
-
-					offer, err := subscriber.Pc.CreateOffer(nil)
-					subscriber.Pc.SetLocalDescription(offer)
-
-					if err != nil {
-						panic(err)
-					}
-
-					payload := make(map[string]interface{})
-					payload["type"] = "remoteOffer"
-					payload["message"] = offer
-					message, _ := json.Marshal(payload)
-					err = subscriber.Ws.WriteMessage(1, message)
-					if err != nil {
-
-					}
-				}
-
-
-
 			}
 
 
@@ -123,6 +102,17 @@ func (h *Hub) Run() {
 
 			case chunk := <-h.Broadcast:
 
+				// Broadcast if not broadcasted
+				br, exist := h.broadcasters[chunk.BroadcastId]
+				if exist {
+					if br.VideoTrack != nil && br.AudioTrack != nil {
+						if br.IsBroadcasted == false {
+							h.BroadcastBroadcasterEntered(br)
+							br.IsBroadcasted = true
+						}
+					}
+				}
+
 				l, exist := h.subscribers[chunk.BroadcastId]
 
 				if exist == false {
@@ -145,4 +135,92 @@ func (h *Hub) Run() {
 func (h *Hub) GetBroadcaster(broadcastId string) *wrtc.Broadcaster {
 	broadcaster, _ := h.broadcasters[broadcastId]
 	return broadcaster
+}
+
+
+func AttachBroadcaster(subscriber *wrtc.Subscriber, broadcaster *wrtc.Broadcaster) {
+	audioTrack, _ := subscriber.Pc.NewTrack(broadcaster.AudioTrack.PayloadType(), broadcaster.AudioTrack.SSRC(), "audio", "pion")
+	subscriber.Pc.AddTrack(audioTrack)
+	subscriber.AudioTrack = audioTrack
+
+	videoTrack, _ := subscriber.Pc.NewTrack(broadcaster.VideoTrack.PayloadType(), broadcaster.VideoTrack.SSRC(), "video", "pion")
+	subscriber.Pc.AddTrack(videoTrack)
+	subscriber.VideoTrack = videoTrack
+
+
+	offer, err := subscriber.Pc.CreateOffer(nil)
+	subscriber.Pc.SetLocalDescription(offer)
+
+	if err != nil {
+		panic(err)
+	}
+
+	payload := make(map[string]interface{})
+	payload["type"] = "remoteOffer"
+	payload["message"] = offer
+	message, _ := json.Marshal(payload)
+
+	subscriber.Ws.WriteMessage(1, message)
+
+}
+
+func DeAttachBroadcaster(subscriber *wrtc.Subscriber, broadcaster *wrtc.Broadcaster) {
+
+
+	senders := subscriber.Pc.GetSenders()
+	for _, sender := range senders {
+		subscriber.Pc.RemoveTrack(sender)
+	}
+
+	offer, err := subscriber.Pc.CreateOffer(nil)
+	subscriber.Pc.SetLocalDescription(offer)
+
+	if err != nil {
+		panic(err)
+	}
+
+	payload := make(map[string]interface{})
+	payload["type"] = "broadcasterExited"
+	payload["message"] = offer
+	message, _ := json.Marshal(payload)
+
+	subscriber.Ws.WriteMessage(1, message)
+
+}
+
+
+
+
+func (h*Hub) BroadcastBroadcasterExited(broadcaster *wrtc.Broadcaster) {
+	l, exist := h.subscribers[broadcaster.BroadcastId]
+
+	if exist == false {
+		return
+	}
+
+	var next *list.Element
+	for e := l.Front(); e != nil; e = next {
+		next = e.Next()
+
+		sub := e.Value.(*wrtc.Subscriber)
+
+		DeAttachBroadcaster(sub, broadcaster)
+	}
+}
+
+func (h*Hub) BroadcastBroadcasterEntered(broadcaster *wrtc.Broadcaster) {
+	l, exist := h.subscribers[broadcaster.BroadcastId]
+
+	if exist == false {
+		return
+	}
+
+	var next *list.Element
+	for e := l.Front(); e != nil; e = next {
+		next = e.Next()
+
+		sub := e.Value.(*wrtc.Subscriber)
+
+		AttachBroadcaster(sub, broadcaster)
+	}
 }
