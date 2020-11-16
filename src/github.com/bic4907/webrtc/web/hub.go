@@ -2,6 +2,7 @@ package web
 
 import (
 	"container/list"
+	"encoding/json"
 	"fmt"
 	"github.com/bic4907/webrtc/common"
 	"github.com/bic4907/webrtc/wrtc"
@@ -78,15 +79,27 @@ func (h *Hub) Run() {
 					track, _ := subscriber.Pc.NewTrack(broadcaster.VideoTrack.PayloadType(), broadcaster.VideoTrack.SSRC(), "video", "pion")
 					subscriber.Pc.AddTrack(track)
 					subscriber.VideoTrack = track
+
+
+					offer, err := subscriber.Pc.CreateOffer(nil)
+					subscriber.Pc.SetLocalDescription(offer)
+
+					if err != nil {
+						panic(err)
+					}
+
+					payload := make(map[string]interface{})
+					payload["type"] = "remoteOffer"
+					payload["message"] = offer
+					message, _ := json.Marshal(payload)
+					err = subscriber.Ws.WriteMessage(1, message)
+					if err != nil {
+
+					}
 				}
 
 
 
-				//payload := make(map[string]interface{})
-				//payload["type"] = "remoteDescription"
-				//payload["message"] = subscriber.Pc.CurrentLocalDescription()
-				//message, _ := json.Marshal(payload)
-				//subscriber.Ws.WriteMessage(1, message)
 			}
 
 

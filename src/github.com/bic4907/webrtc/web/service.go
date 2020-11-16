@@ -132,7 +132,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				payload := make(map[string]interface{})
 				payload["type"] = "duplicatedSession"
 				message, _ = json.Marshal(payload)
-				c.WriteMessage(mt, message)
+				err = c.WriteMessage(mt, message)
 			} else {
 
 				pc = wrtc.MakeBroadcasterPeerConnection(offer, &broadcaster)
@@ -142,7 +142,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				payload["message"] = pc.LocalDescription()
 				message, _ = json.Marshal(payload)
 
-				c.WriteMessage(mt, message)
+				err = c.WriteMessage(mt, message)
 
 				hub.Register <- &broadcaster
 				br = &broadcaster
@@ -188,6 +188,14 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 			if pc != nil {
 				pc.AddICECandidate(actual)
 			}
+			break
+		case "remoteAnswer":
+			b, _ := base64.StdEncoding.DecodeString(data["message"])
+
+			answer := webrtc.SessionDescription{}
+			err = json.Unmarshal(b, &answer)
+			pc.SetRemoteDescription(answer)
+
 			break
 		}
 
