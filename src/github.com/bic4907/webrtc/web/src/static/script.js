@@ -8,6 +8,8 @@ let app = new Vue({
         ws: null,
 
         mode: null,
+        userId: null,
+        roomId: null,
 
         resourceType: {
             audio: true,
@@ -36,11 +38,15 @@ let app = new Vue({
         let param = $.urlParam('mode');
         param == 'sender' ? this.mode = 'sender' : this.mode = 'receiver'
 
-        this.addLog('info', this.mode)
+        let userId = $.urlParam('userId');
+        userId == null ? this.userId = 'TestUser' : this.userId = userId
 
-        if(this.mode == 'sender') {
-            this.showWebcamVideo()
-        }
+        let roomId = $.urlParam('roomId');
+        roomId == null ? this.roomId = 'TestRoom' : this.roomId = roomId
+
+
+
+        this.initialize()
     },
     computed: {
         wsUrl: function() {
@@ -53,7 +59,25 @@ let app = new Vue({
             return url
         }
     },
+    watch: {
+      mode: function(newVal, oldVal) {
+        this.initialize()
+      },
+    },
     methods: {
+        initialize:  function() {
+            this.addLog('info', this.mode)
+
+            if(this.mode == 'sender') {
+                this.showWebcamVideo()
+            }
+
+
+            if(this.mode == 'receiver') {
+                this.remoteStream = new MediaStream()
+                document.getElementById("video").srcObject = this.remoteStream
+            }
+        },
         showWebcamVideo: function () {
             let self = this
             navigator.mediaDevices.getUserMedia(self.resourceType).then(function (stream) {
@@ -90,10 +114,11 @@ let app = new Vue({
 
                     let candidate = new RTCIceCandidate(JSON.parse(json.message))
                     let itv = setInterval(function() {
-                        self.pc.addIceCandidate(candidate).then(evt => {
-                            clearInterval(itv)
-
-                        })
+                        try {
+                            self.pc.addIceCandidate(candidate).then(evt => {
+                                clearInterval(itv)
+                            })
+                        } catch {}
                     }, 1000)
                 } else if(json.type === "duplicatedSession") {
                     self.addLog('error', 'Duplicated session')
@@ -139,10 +164,6 @@ let app = new Vue({
 
             this.status = 'disconnected'
             this.latency = null
-
-            if(this.mode == 'receiver') {
-                document.getElementById("video").srcObject = null
-            }
 
         },
         connectAsSender: function () {
@@ -220,14 +241,11 @@ let app = new Vue({
 
                         self.pc.setLocalDescription(d)
 
-                        let user_id = 'user1'
-                        let room_id = 'r1'
-
                         this.ws.send(JSON.stringify({
                             type: 'broadcastRequest',
                             message: btoa(JSON.stringify(self.pc.localDescription)),
-                            userId: user_id,
-                            roomId: room_id,
+                            userId: self.userId,
+                            roomId: self.roomId,
                         }))
 
 
@@ -241,28 +259,31 @@ let app = new Vue({
             self.attachPeerConnectionHandler()
             self.initializeHealthCheck()
 
+            self.remoteStream = new MediaStream()
             document.getElementById("video").srcObject = self.remoteStream
 
             self.pc.addEventListener('track', function(event) {
                 self.status = 'connected'
                 console.log('track', event.track)
+
                 self.remoteStream.addTrack(event.track, self.remoteStream)
             });
 
 
             self.pc.createOffer().then(d => {
 
-                self.pc.setLocalDescription(d)
+                self.pc.setLocalDescription(d).then(() => {
 
-                let user_id = 'user1'
-                let room_id = 'r1'
+                    self.ws.send(JSON.stringify({
+                        type: 'subscribeRequest',
+                        message: btoa(JSON.stringify(self.pc.localDescription)),
+                        userId: self.userId,
+                        roomId: self.roomId,
+                    }))
 
-                this.ws.send(JSON.stringify({
-                    type: 'subscribeRequest',
-                    message: btoa(JSON.stringify(self.pc.localDescription)),
-                    userId: user_id,
-                    roomId: room_id,
-                }))
+                })
+
+
             })
         },
         initializeHealthCheck: function() {

@@ -91,11 +91,37 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}()
 
+	go func() {
+		defer func() {
+			recover()
+		}()
+		for {
+			if br != nil {
+				message := <-br.MessageChannel
+
+
+				err = c.WriteMessage(1, message)
+				if err != nil {
+					break
+				}
+			}
+			if sub != nil {
+
+				message := <-sub.MessageChannel
+
+
+				err = c.WriteMessage(1, message)
+				if err != nil {
+					break
+				}
+			}
+		}
+	}()
+
 	for {
 
 		mt, message, err := c.ReadMessage()
 		if err != nil {
-			fmt.Println("ERR")
 			break
 		}
 
@@ -104,7 +130,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Println(data["type"])
+
 		switch data["type"] {
 		case "broadcastRequest":
 
@@ -127,6 +153,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				BroadcastId: data["roomId"] + "_" + data["userId"],
 				BroadcastChannel: make(chan common.BroadcastChunk),
 				IsBroadcasted: false,
+				MessageChannel: make(chan []byte),
 			}
 
 			go func() {
@@ -138,13 +165,17 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 			prevBroadcaster := hub.GetBroadcaster(broadcaster.BroadcastId)
 			if prevBroadcaster != nil {
+
+				prevBroadcaster.Ws.Close()
+				prevBroadcaster.Pc.Close()
+
 				payload := make(map[string]interface{})
 				payload["type"] = "duplicatedSession"
 				message, _ = json.Marshal(payload)
+
 				err = c.WriteMessage(mt, message)
 
 				hub.Unregister <- prevBroadcaster
-
 			} else {
 
 				pc = wrtc.MakeBroadcasterPeerConnection(offer, &broadcaster)
@@ -178,6 +209,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 				RoomId:      data["roomId"],
 				BroadcastId: data["roomId"] + "_" + data["userId"],
 				Receiver: make(chan common.BroadcastChunk),
+				MessageChannel: make(chan []byte),
 			}
 
 			pc = wrtc.MakeSubscriberPeerConnection(offer, &subscriber)

@@ -12,6 +12,7 @@ import (
 type Subscriber struct {
 	Pc          *webrtc.PeerConnection
 	Ws 			*websocket.Conn
+	MessageChannel chan []byte
 
 	Uid         uuid.UUID
 
@@ -59,10 +60,16 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 			if chunk.CodecType == webrtc.RTPCodecTypeAudio {
 				if subscriber.AudioTrack != nil {
 					err = subscriber.AudioTrack.WriteRTP(chunk.Chunk)
+					if err != nil {
+						//fmt.Println(err)
+					}
 				}
 			} else {
 				if subscriber.VideoTrack != nil {
 					err = subscriber.VideoTrack.WriteRTP(chunk.Chunk)
+					if err != nil {
+						//fmt.Println(err)
+					}
 				}
 			}
 		}

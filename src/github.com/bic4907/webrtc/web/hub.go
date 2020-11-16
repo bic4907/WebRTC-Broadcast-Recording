@@ -3,7 +3,6 @@ package web
 import (
 	"container/list"
 	"encoding/json"
-	"fmt"
 	"github.com/bic4907/webrtc/common"
 	"github.com/bic4907/webrtc/wrtc"
 	"log"
@@ -44,19 +43,16 @@ func (h *Hub) Run() {
 
 	for {
 
-		defer func() {
-			recover()
-		}()
-
 		select {
 		case broadcaster := <-h.Register:
 			log.Print("Broadcast registered - " + broadcaster.BroadcastId)
 			h.broadcasters[broadcaster.BroadcastId] = broadcaster
 
 		case broadcaster := <-h.Unregister:
+
 			if _, ok := h.broadcasters[broadcaster.BroadcastId]; ok {
 				log.Print("Broadcast unregistered - " + broadcaster.BroadcastId)
-				h.BroadcastBroadcasterExited(broadcaster)
+				go h.BroadcastBroadcasterExited(broadcaster)
 				delete(h.broadcasters, broadcaster.BroadcastId)
 			}
 
@@ -71,14 +67,11 @@ func (h *Hub) Run() {
 			l.PushBack(subscriber)
 
 			log.Print("Subscriber registered - " + subscriber.BroadcastId)
-			fmt.Println(l.Len())
 
 			// Already broadcasting
 			broadcaster, exist := h.broadcasters[subscriber.BroadcastId]
 			if exist {
-				if broadcaster.AudioTrack != nil && broadcaster.VideoTrack != nil {
-					AttachBroadcaster(subscriber, broadcaster)
-				}
+				AttachBroadcaster(subscriber, broadcaster)
 			}
 
 
@@ -98,7 +91,6 @@ func (h *Hub) Run() {
 				}
 			}
 			log.Print("Subscriber unregistered - " + subscriber.BroadcastId)
-			fmt.Println(l.Len())
 
 			case chunk := <-h.Broadcast:
 
@@ -160,8 +152,7 @@ func AttachBroadcaster(subscriber *wrtc.Subscriber, broadcaster *wrtc.Broadcaste
 	payload["message"] = offer
 	message, _ := json.Marshal(payload)
 
-	subscriber.Ws.WriteMessage(1, message)
-
+	subscriber.MessageChannel <- message
 }
 
 func DeAttachBroadcaster(subscriber *wrtc.Subscriber, broadcaster *wrtc.Broadcaster) {
@@ -184,8 +175,7 @@ func DeAttachBroadcaster(subscriber *wrtc.Subscriber, broadcaster *wrtc.Broadcas
 	payload["message"] = offer
 	message, _ := json.Marshal(payload)
 
-	subscriber.Ws.WriteMessage(1, message)
-
+	subscriber.MessageChannel <- message
 }
 
 

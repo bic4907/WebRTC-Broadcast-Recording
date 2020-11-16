@@ -19,6 +19,7 @@ import (
 type Broadcaster struct {
 	Pc *webrtc.PeerConnection
 	Ws *websocket.Conn
+	MessageChannel chan []byte
 
 	Uid 	   uuid.UUID
 	Recorder   *VideoRecorder
