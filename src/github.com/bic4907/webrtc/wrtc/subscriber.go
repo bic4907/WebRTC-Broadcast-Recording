@@ -47,9 +47,6 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 	}
 
 
-	tr, _ := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo)
-	pc.AddTrack(tr.Sender().Track())
-
 	subscriber.Pc = pc
 
 	var videoCheckerChannel *webrtc.DataChannel = nil
@@ -90,8 +87,10 @@ func MakeSubscriberPeerConnection(description webrtc.SessionDescription, subscri
 		payload["message"] = actualSerialized
 		message, _ := json.Marshal(payload)
 
-		subscriber.Ws.WriteMessage(1, message)
+		err = subscriber.Ws.WriteMessage(1, message)
+		if err != nil {
 
+		}
 	})
 
 	pc.OnDataChannel(func(d *webrtc.DataChannel) {

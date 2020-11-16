@@ -96,6 +96,21 @@ let app = new Vue({
                 } else if(json.type === "duplicatedSession") {
                     self.addLog('error', 'Duplicated session')
                     self.disconnect()
+                } else if(json.type === "remoteOffer") {
+                    self.pc.setRemoteDescription(new RTCSessionDescription(json.message)).then(() => {
+                        self.pc.createAnswer().then(answer => {
+                            self.pc.setLocalDescription(answer)
+
+                            self.ws.send(JSON.stringify({
+                                type: 'remoteAnswer',
+                                message: btoa(JSON.stringify(self.pc.currentLocalDescription)),
+                            }))
+                        })
+                    })
+
+
+
+
                 }
             }
         },
@@ -183,7 +198,7 @@ let app = new Vue({
 
             navigator.mediaDevices.getUserMedia({video: true, audio: true})
                 .then(stream => {
-                    for (const track of stream.getTracks()) {
+                    for (let track of stream.getTracks()) {
                         self.pc.addTrack(track);
                     }
 
@@ -210,10 +225,9 @@ let app = new Vue({
             let self = this
 
             self.pc = new RTCPeerConnection(self.pcSetting);
-            self.pc.addTransceiver('video')
-            self.pc.addTransceiver('audio')
             self.attachPeerConnectionHandler()
             self.initializeHealthCheck()
+
 
 
             let remoteStream = new MediaStream();
