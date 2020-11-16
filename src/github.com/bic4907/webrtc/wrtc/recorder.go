@@ -20,7 +20,7 @@ type VideoRecorder struct {
 	audioWriter, videoWriter       webm.BlockWriteCloser
 	audioBuilder, videoBuilder     *samplebuilder.SampleBuilder
 	audioTimestamp, videoTimestamp uint32
-	client                         Client
+	Broadcaster					   *Broadcaster
 	path                           string
 	name                           string
 }
@@ -33,11 +33,8 @@ func newVideoRecorder() *VideoRecorder {
 }
 
 func (s *VideoRecorder) Close() {
-	if s.client.recorder.name == "" {
-		return
-	}
 
-	log(s.client.id, fmt.Sprintf("Recording finished - %s", s.client.recorder.name))
+	log(s.Broadcaster.Uid, fmt.Sprintf("Recording finished - %s", s.Broadcaster.Recorder.name))
 	if s.audioWriter != nil {
 		if err := s.audioWriter.Close(); err != nil {
 			// panic(err)
@@ -99,7 +96,7 @@ func (s *VideoRecorder) PushVP8(rtpPacket *rtp.Packet) {
 }
 func (s *VideoRecorder) InitWriter(width, height int) {
 
-	uid := s.client.id.String()
+	uid := s.Broadcaster.Uid.String()
 	now := time.Now().Format("2006-01-02_15-04-05")
 	filename := uid + ".mp4"
 	filepath := videoPath + now + "_" + filename
@@ -152,7 +149,7 @@ func (s *VideoRecorder) InitWriter(width, height int) {
 		panic(err)
 	}
 
-	log(s.client.id, fmt.Sprintf("Record starting - video width=%d, height=%d", width, height))
+	log(s.Broadcaster.Uid, fmt.Sprintf("Record starting - video width=%d, height=%d", width, height))
 
 	s.audioWriter = ws[0]
 	s.videoWriter = ws[1]

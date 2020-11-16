@@ -1,0 +1,43 @@
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC</title>
+
+    <script src="https://code.jquery.com/jquery-2.2.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+    <link href="/static/style.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">
+        <div id="media">
+            <audio id="audio" autoplay="true"></audio>
+            <video id="video" autoplay="true" playsinline="true"></video>
+        </div>
+
+
+        <div id="controls">
+            <center>
+                <button id="start" class="state-button" v-if="status == 'disconnected'" @click="connect">Connect</button>
+                <button id="stop" class="state-button" v-else @click="disconnect" :disabled="status == 'connecting'">Disconnect</button>
+
+                <div class="status">
+                    <div class="connected" v-if="status == 'connected'"><div class="pin" style="background:green"></div>연결완료</div>
+                    <div class="connecting" v-else-if="status == 'connecting'"><div class="pin" style="background:orange"></div>연결중</div>
+                    <div class="disconnected" v-else-if="status == 'disconnected'"><div class="pin" style="background:red"></div>연결끊김</div>
+                </div>
+                <div id="latency" v-if="latency != null">({{ latency }})</div>
+            </center>
+        </div>
+        <div id="debug">
+            <div v-for="log in logs">
+                <div class="log">
+                    {{ log.message }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
