@@ -173,7 +173,7 @@ let app = new Vue({
         },
         disconnect: function () {
 
-            if(this.ws) this.ws.close()
+            if(this.ws && this.ws.readyState == this.ws.CONNECTING) this.ws.close()
             if(this.pc) this.pc.close()
 
             this.ws = null
@@ -240,16 +240,16 @@ let app = new Vue({
             let self = this
 
             this.pc.addEventListener('iceconnectionstatechange', function() {
-                 self.addLog('debug', 'ICEConnectionState changed to ' + self.pc.iceConnectionState)
+                if(self.pc != null) self.addLog('debug', 'ICEConnectionState changed to ' + self.pc.iceConnectionState)
             }, false);
 
 
             this.pc.addEventListener('signalingstatechange', function() {
-                self.addLog('debug', 'SignalingState changed to ' + self.pc.signalingState)
+                if(self.pc != null) self.addLog('debug', 'SignalingState changed to ' + self.pc.signalingState)
             }, false);
 
             this.pc.addEventListener('icegatheringstatechange', function() {
-                self.addLog('debug', 'ICEGatheringState changed to ' + self.pc.iceGatheringState)
+                if(self.pc != null) self.addLog('debug', 'ICEGatheringState changed to ' + self.pc.iceGatheringState)
             }, false);
 
 
@@ -318,8 +318,8 @@ let app = new Vue({
             self.pc.addEventListener('track', function(event) {
                 self.status = 'connected'
                 console.log('track', event.track)
+                self.remoteStream.addTrack(event.track)
 
-                self.remoteStream.addTrack(event.track, self.remoteStream)
             });
 
 

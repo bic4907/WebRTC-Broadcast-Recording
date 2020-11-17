@@ -3,6 +3,7 @@ package web
 import (
 	"container/list"
 	"encoding/json"
+	"fmt"
 	"github.com/bic4907/webrtc/common"
 	"github.com/bic4907/webrtc/wrtc"
 	"log"
@@ -45,13 +46,13 @@ func (h *Hub) Run() {
 
 		select {
 		case broadcaster := <-h.Register:
-			log.Print("Broadcast registered - " + broadcaster.BroadcastId)
+			log.Print(fmt.Sprintf("[%s] Broadcast registered - " + broadcaster.BroadcastId, broadcaster.Uid.String()))
 			h.broadcasters[broadcaster.BroadcastId] = broadcaster
 
 		case broadcaster := <-h.Unregister:
 
 			if _, ok := h.broadcasters[broadcaster.BroadcastId]; ok {
-				log.Print("Broadcast unregistered - " + broadcaster.BroadcastId)
+				log.Print(fmt.Sprintf("[%s] Broadcast unregistered - " + broadcaster.BroadcastId, broadcaster.Uid.String()))
 				go h.BroadcastBroadcasterExited(broadcaster)
 				delete(h.broadcasters, broadcaster.BroadcastId)
 			}
@@ -66,7 +67,7 @@ func (h *Hub) Run() {
 
 			l.PushBack(subscriber)
 
-			log.Print("Subscriber registered - " + subscriber.BroadcastId)
+			log.Print(fmt.Sprintf("[%s] Subscriber registered - " + subscriber.BroadcastId, subscriber.Uid.String()))
 
 			// Already broadcasting
 			broadcaster, exist := h.broadcasters[subscriber.BroadcastId]
@@ -90,7 +91,10 @@ func (h *Hub) Run() {
 					l.Remove(e)
 				}
 			}
-			log.Print("Subscriber unregistered - " + subscriber.BroadcastId)
+
+
+			log.Print(fmt.Sprintf("[%s] Subscriber unregistered - " + subscriber.BroadcastId, subscriber.Uid.String()))
+
 
 			case chunk := <-h.Broadcast:
 
