@@ -19,15 +19,17 @@
         <div id="controls">
             <center>
 
+                <!--
                 <button v-if="mode == 'sender'" @click="mode = 'receiver'">Sender</button>
                 <button v-else @click="mode='sender'">Receiver</button>
-
                 <input v-model="roomId" placeholder="Room Id">
                 <input v-model="userId" placeholder="User Id">
-
+                <input id="autoReconnect" type="checkbox" v-model="autoReconnect">
+                <label for="autoReconnect">Reconnect</label>
+                <button @click="websocketDisconnect">ForceDisconnect</button>
                 <button id="start" class="state-button" v-if="status == 'disconnected'" @click="connect">Connect</button>
-                <button id="stop" class="state-button" v-else @click="disconnect" :disabled="status == 'connecting'">Disconnect</button>
-
+                <button id="stop" class="state-button" v-else @click="forceDisconnect" :disabled="status == 'connecting'">Disconnect</button>
+                -->
                 <div class="status">
                     <div class="connected" v-if="status == 'connected'"><div class="pin" style="background:green"></div>연결완료</div>
                     <div class="connecting" v-else-if="status == 'connecting'"><div class="pin" style="background:orange"></div>연결중</div>

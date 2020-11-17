@@ -10,6 +10,8 @@ let app = new Vue({
         mode: null,
         userId: null,
         roomId: null,
+        autoReconnect: true,
+        autoStart: false,
 
         resourceType: {
             audio: true,
@@ -44,9 +46,13 @@ let app = new Vue({
         let roomId = $.urlParam('roomId');
         roomId == null ? this.roomId = 'TestRoom' : this.roomId = roomId
 
+        let autoStart = $.urlParam('autoStart');
+        autoStart != null ? this.autoStart = true : this.autoStart = false
 
 
         this.initialize()
+
+        if(this.autoStart) this.connect()
     },
     computed: {
         wsUrl: function() {
@@ -60,9 +66,16 @@ let app = new Vue({
         }
     },
     watch: {
-      mode: function(newVal, oldVal) {
-        this.initialize()
-      },
+        mode: function(newVal, oldVal) {
+            this.initialize()
+        },
+        latency: function(newVal, oldVal) {
+            if(parseInt(newVal) < 0) {
+                console.log("Restart caused by ping error")
+                this.disconnect()
+                this.connect()
+            }
+        }
     },
     methods: {
         initialize:  function() {
@@ -72,11 +85,6 @@ let app = new Vue({
                 this.showWebcamVideo()
             }
 
-
-            if(this.mode == 'receiver') {
-                this.remoteStream = new MediaStream()
-                document.getElementById("video").srcObject = this.remoteStream
-            }
         },
         showWebcamVideo: function () {
             let self = this
@@ -87,6 +95,15 @@ let app = new Vue({
             }, function (err) {
                 self.addLog('error', '리소스를 가져올 수 없음')
             });
+        },
+        forceDisconnect() {
+            this.autoReconnect = true
+            this.disconnect()
+        },
+        websocketDisconnect() {
+          if(this.ws.readyState == this.ws.OPEN) {
+              this.ws.close()
+          }
         },
         connect: function () {
             let self = this
@@ -164,33 +181,60 @@ let app = new Vue({
 
             this.status = 'disconnected'
             this.latency = null
-
+            this.pingTable = {}
+        },
+        reconnect: function() {
+            this.addLog('info', 'Reconnecting')
+            this.disconnect()
+            this.connect()
         },
         connectAsSender: function () {
             let self = this
 
-            this.ws = new WebSocket(self.wsUrl);
-            this.ws.onclose = function (evt) {
-                self.disconnect()
-                self.addLog('debug', '웹소켓 접속종료')
-            };
-            this.ws.onopen = function (evt) {
-                self.addLog('info', '웹소켓 접속 완료')
-                self.initalizeSender()
+            try {
+                this.ws = new WebSocket(self.wsUrl);
+
+                this.ws.onclose = function (evt) {
+                    if(self.autoReconnect) {
+                        setTimeout(self.reconnect, 200)
+                    }
+                    self.addLog('debug', '웹소켓 접속종료')
+                };
+                this.ws.onopen = function (evt) {
+                    self.addLog('info', '웹소켓 접속 완료')
+                    self.initalizeSender()
+                }
+
+            } catch(e) {
+                console.log('Reconnect websocket caused by error:' + e)
+                self.reconnect()
+                return
             }
+
         },
         connectAsReceiver: function () {
             let self = this
 
-            this.ws = new WebSocket(self.wsUrl);
-            this.ws.onclose = function (evt) {
-                self.disconnect()
-                self.addLog('debug', '웹소켓 접속종료')
-            };
-            this.ws.onopen = function (evt) {
-                self.addLog('info', '웹소켓 접속 완료')
-                self.initalizeReceiver()
+            try {
+                this.ws = new WebSocket(self.wsUrl);
+
+                this.ws.onclose = function (evt) {
+                    if(self.autoReconnect) {
+                        self.reconnect()
+                    }
+                    self.addLog('debug', '웹소켓 접속종료')
+                };
+
+                this.ws.onopen = function (evt) {
+                    self.addLog('info', '웹소켓 접속 완료')
+                    self.initalizeReceiver()
+                }
+            } catch(e) {
+                console.log('Reconnect websocket caused by error:' + e)
+                self.reconnect()
+                return
             }
+
         },
         attachPeerConnectionHandler: function() {
             let self = this
@@ -214,12 +258,21 @@ let app = new Vue({
             this.pc.addEventListener('icecandidate', function(e) {
                 if(e.candidate == null) return
 
-                self.ws.send(
-                    JSON.stringify({
-                        type: 'iceCandidate',
-                        message: JSON.stringify(e.candidate),
-                    })
-                )
+                let itv = setInterval(function() {
+                    try {
+                        if(self.ws.readyState == self.ws.OPEN) {
+                            self.ws.send(
+                                JSON.stringify({
+                                    type: 'iceCandidate',
+                                    message: JSON.stringify(e.candidate),
+                                })
+                            )
+                            clearInterval(itv)
+                        }
+                    } catch {
+
+                    }
+                }, 100)
             })
         },
         initalizeSender: function () {

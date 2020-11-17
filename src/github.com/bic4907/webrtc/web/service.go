@@ -76,6 +76,7 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	var br *wrtc.Broadcaster = nil
 	var sub *wrtc.Subscriber = nil
 
+
 	defer func() {
 		c.Close()
 		if br != nil {
@@ -94,11 +95,24 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() {
 			recover()
+
+			if br != nil {
+				hub.Unregister <- br
+				br.Ws = nil
+				br = nil
+			}
+			if sub != nil {
+				hub.Unsubscribe <- sub
+				sub.Ws = nil
+				sub = nil
+			}
+			c.Close()
+
+
 		}()
 		for {
 			if br != nil {
 				message := <-br.MessageChannel
-
 
 				err = c.WriteMessage(1, message)
 				if err != nil {
@@ -109,12 +123,12 @@ func websocketHandler(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 				message := <-sub.MessageChannel
 
-
 				err = c.WriteMessage(1, message)
 				if err != nil {
 					break
 				}
 			}
+
 		}
 	}()
 
