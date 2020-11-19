@@ -7,7 +7,7 @@
 - Go-lang SFU server, web-based demostration client
 - Signaling (Offer, Answer) using gorilla websocket
 
-## Demostration
+## How To Run
 WIP
 
 ### Dockerfile
