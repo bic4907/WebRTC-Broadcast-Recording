@@ -6,3 +6,10 @@
 - Recording Broadcaster's Tracks as `.mp4` using ffmpeg
 - Go-lang SFU server, web-based demostration client
 - Signaling (Offer, Answer) using gorilla websocket
+
+## Architecture
+WIP
+
+
+## Author
+- [In-chang Baek](https://github.com/bic4907)
