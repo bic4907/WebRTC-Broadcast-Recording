@@ -1,4 +1,5 @@
 # WebRTC Broadcasting Recording
+This repository is not a peer-to-peer example. The server totally cares signaling and broadcasting
 
 ## Features
 - Multiple Broadcaster, multiple subscribers architecture (1:N SFU)
