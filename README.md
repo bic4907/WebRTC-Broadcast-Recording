@@ -3,7 +3,7 @@ This repository is not a peer-to-peer example. The server totally cares signalin
 
 ## Features
 - Multiple Broadcaster, multiple subscribers architecture (1:N SFU)
-- Subscribers listen events `Broadcaster Connected`, `Broadcaster Unconnected`
+- Subscribers listen events `Broadcaster Connected`, `Broadcaster Disconnected`
 - Recording Broadcaster's Tracks as `.mp4` using ffmpeg
 - Go-lang SFU server, web-based demostration client
 - Signaling (Offer, Answer) using gorilla websocket
