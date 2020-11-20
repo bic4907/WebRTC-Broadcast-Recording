@@ -24,7 +24,7 @@ Our Dockerfile will automatically install go-lang and FFmpeg on docker image.
 
 ### Go compiling
 If you didn't install FFmpeg, you need to install your own version of FFmpeg binaries.
-On your command line, `ffmpeg` command should be available. FFmpeg is needed to recording your video and audio track as a MPEG4 media file.
+On your command line, `ffmpeg` command should be available. FFmpeg is needed to record your video and audio track as a MPEG4 media file.
 
 WIP
 
@@ -44,4 +44,4 @@ WIP
 - [gorilla/websocket](https://github.com/gorilla/websocket)  
 
 Those are most useful materials for you understanding webrtc sigaling paradism.  
-Keep in your mind that websocket communication is one of lots of signaling methods. 
+Keep in your mind that websocket communication is just one of lots of signaling methods. 
