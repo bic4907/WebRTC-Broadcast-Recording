@@ -37,6 +37,8 @@ WIP
 
 ## Author
 - [In-chang Baek](https://github.com/bic4907)
+### Special thanks
+- [Lim JooYoung](https://github.com/DevRockstarZ)
 
 ## References
 - [pion/webrtc](https://github.com/pion/webrtc)
