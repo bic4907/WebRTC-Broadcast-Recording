@@ -9,7 +9,6 @@ This repository is not a peer-to-peer example. The server totally cares signalin
 - Signaling (Offer, Answer) using gorilla websocket
 
 ## How To Run
-WIP
 
 ### Dockerfile
 You need to install Docker (Windows, Linux, MacOS) on your computer.
@@ -26,19 +25,40 @@ Our Dockerfile will automatically install go-lang and FFmpeg on docker image.
 If you didn't install FFmpeg, you need to install your own version of FFmpeg binaries.
 On your command line, `ffmpeg` command should be available. FFmpeg is needed to record your video and audio track as a MPEG4 media file.
 
-WIP
-
+```
+cd src/github.com/bic4907/webrtc   
+go run main.go
+```
 
 ## Architecture
 Our repository is Server (Go)-Client (Javascript) architecture. 
-  
-WIP
+WIP  
 
+
+### Hub Events 
+Some events regarding broadcasting service. Please check out [hub.go](/src/github.com/bic4907/webrtc/web/hub.go) source code.   
+   
+```Register```
+A broadcaster event when a broadcaster joined to the server. The broadcaster offers to begin audio/video track and negotiate with server. When broadcaster begin to send RTC packet, `BroadcastBroadcasterEntered` method will be executed. This method will notify to users that already connected to server via a websocket event. Then, clients and server will re-negotiate to make new media track.  
+When the broadcaster starts to send RTC packets, the server will record video/audio using ffmpeg.
+
+```Unregister```
+A broadcaster event when a broadcaster exited from the server. This event will execute `BroadcastBroadcasterExited` method, and the server will make user to remove tracks from player.
+  
+```Subscribe```
+A subscriber event when a receiver joined to the server. The hub will find whether the broadcaster is existing and offer video/audio tracks to user via websocket. If the broadcaster not joined yet, the server do not anything and the user will be wait for the broadcaster join.
+  
+```Unsubscribe```
+A subscriber event when a receiver exited from the server. The hub will remove user from a room's user list.
+  
+```Broadcast```
+A broadcaster event when a broadcaster sends a RTC packet. The hub publishes this packet to the users where the broadcaster have opened.
+  
 
 ## Author
 - [In-chang Baek](https://github.com/bic4907)
 ### Special thanks
-- [Lim JooYoung](https://github.com/DevRockstarZ)
+- [JooYoung Lim](https://github.com/DevRockstarZ)
 
 ## References
 - [pion/webrtc](https://github.com/pion/webrtc)
